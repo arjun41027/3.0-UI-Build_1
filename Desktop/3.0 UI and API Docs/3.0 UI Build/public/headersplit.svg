@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no" ?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN">
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="1080"
+     height="1080" viewBox="0 0 1080 1080" xml:space="preserve">
+<desc>Created with Fabric.js 5.2.4</desc>
+    <defs>
+</defs>
+    <rect x="0" y="0" width="100%" height="100%" fill="transparent"></rect>
+    <g transform="matrix(1 0 0 1 540 540)" id="204fccda-fded-4a77-8746-8b290e9173c5">
+</g>
+    <g transform="matrix(1 0 0 1 540 540)" id="7333ac2a-2863-4586-9e47-68538cdb3633">
+<rect style="stroke: none; stroke-width: 1; stroke-dasharray: none; stroke-linecap: butt; stroke-dashoffset: 0; stroke-linejoin: miter; stroke-miterlimit: 4; fill: rgb(255,255,255); fill-rule: nonzero; opacity: 1; visibility: hidden;"
+      vector-effect="non-scaling-stroke" x="-540" y="-540" rx="0" ry="0" width="1080" height="1080"/>
+</g>
+    <g transform="matrix(29.92 0 0 29.92 540 540)">
+<g style="">
+		<g transform="matrix(1 0 0 1 0 -0.55)">
+<path style="stroke: none; stroke-width: 1; stroke-dasharray: none; stroke-linecap: butt; stroke-dashoffset: 0; stroke-linejoin: miter; stroke-miterlimit: 4; fill: rgb(255,255,255); fill-rule: nonzero; opacity: 1;"
+      vector-effect="non-scaling-stroke" transform=" translate(-18.05, -29.45)"
+      d="M 36.1 0 C 35.829915801212884 -0.005238174423202743 35.56048451896642 0.028440735857605204 35.300000000000004 0.10000000000000009 C 34.71737061320165 0.2066039056826615 34.147569497072666 0.37419246925001093 33.6 0.6 C 25.3 4.2 23.6 24.1 23.5 25 C 19.9 59.7 0.8 58.9 0 58.9 L 0 0 Z"
+      stroke-linecap="round"/>
+</g>
+    <g transform="matrix(1 0 0 1 0 0)">
+<path style="stroke: none; stroke-width: 1; stroke-dasharray: none; stroke-linecap: butt; stroke-dashoffset: 0; stroke-linejoin: miter; stroke-miterlimit: 4; fill: rgb(255,255,255); fill-rule: nonzero; opacity: 1;"
+      vector-effect="non-scaling-stroke" transform=" translate(-18.05, -30)"
+      d="M 36.1 0 L 36.1 1.1 C 26.6 1.4000000000000001 24.5 24.900000000000002 24.5 25.1 C 22.6 43.7 16 52.2 10.9 56.1 C 7.852052174378626 58.45958405083478 4.150423615130014 59.821503992445116 0.29999999999999893 60 L 0 60 L 0 58.9 C 0.8 58.9 19.9 59.699999999999996 23.5 25 C 23.6 24.1 25.3 4.199999999999999 33.6 0.6000000000000014 C 34.15219453367848 0.38758076737033 34.72073048905043 0.22036430990799216 35.3 0.10000000000000142 C 35.5 0.1 36.1 0 36.1 0 Z"
+      stroke-linecap="round"/>
+</g>
+</g>
+</g>
+</svg>

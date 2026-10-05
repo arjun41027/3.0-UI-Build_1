@@ -1,0 +1,1 @@
+.table{position:absolute;top:0;left:0;right:0;bottom:0;z-index:2000;height:100%;width:100%;background-color:#e9eaed;display:flex;justify-content:center;align-items:center}.loading-logo{animation:fadeInOut 2s linear infinite}@keyframes fadeInOut{0%{opacity:0}50%{opacity:1}to{opacity:0}}

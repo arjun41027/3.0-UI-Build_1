@@ -1,0 +1,6 @@
+▲ Next.js 16.1.6
+- Local:         http://0.0.0.0:\\.\pipe\3a1cfaec-cb49-48b8-a8ec-d7bcd3187328
+- Network:       http://0.0.0.0:\\.\pipe\3a1cfaec-cb49-48b8-a8ec-d7bcd3187328
+
+✓ Starting...
+✓ Ready in 1767ms

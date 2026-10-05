@@ -1,0 +1,409 @@
+{
+  "version": 3,
+  "pages404": true,
+  "appType": "hybrid",
+  "caseSensitive": false,
+  "basePath": "/PuffinUI",
+  "redirects": [
+    {
+      "source": "/PuffinUI/",
+      "destination": "/PuffinUI",
+      "basePath": false,
+      "internal": true,
+      "priority": true,
+      "statusCode": 308,
+      "regex": "^/PuffinUI/$"
+    },
+    {
+      "source": "/:path+/",
+      "destination": "/:path+",
+      "internal": true,
+      "priority": true,
+      "statusCode": 308,
+      "regex": "^(?:/((?:[^/]+?)(?:/(?:[^/]+?))*))/$"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/PuffinUI/(.*)",
+      "headers": [
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; style-src-elem 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' data: blob:; connect-src 'self' https://twowayserver.future-club.com; font-src 'self'; frame-src 'self' blob:; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'"
+        },
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "key": "X-XSS-Protection",
+          "value": "1; mode=block"
+        },
+        {
+          "key": "Permissions-Policy",
+          "value": "camera=(), microphone=(), geolocation=()"
+        },
+        {
+          "key": "Strict-Transport-Security",
+          "value": "max-age=63072000; includeSubDomains; preload"
+        },
+        {
+          "key": "Cache-Control",
+          "value": "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0"
+        },
+        {
+          "key": "Pragma",
+          "value": "no-cache"
+        },
+        {
+          "key": "Expires",
+          "value": "0"
+        }
+      ],
+      "regex": "^/PuffinUI(?:/(.*))(?:/)?$"
+    },
+    {
+      "source": "/PuffinUI/login",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-store, no-cache, must-revalidate, proxy-revalidate"
+        },
+        {
+          "key": "Pragma",
+          "value": "no-cache"
+        },
+        {
+          "key": "Expires",
+          "value": "0"
+        }
+      ],
+      "regex": "^/PuffinUI/login(?:/)?$"
+    }
+  ],
+  "rewrites": {
+    "beforeFiles": [],
+    "afterFiles": [],
+    "fallback": []
+  },
+  "dynamicRoutes": [
+    {
+      "page": "/campaigns/[campainChannelType]",
+      "regex": "^/campaigns/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPcampainChannelType": "nxtPcampainChannelType"
+      },
+      "namedRegex": "^/campaigns/(?<nxtPcampainChannelType>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/dictionary/message-template/edit/[templateId]",
+      "regex": "^/dictionary/message\\-template/edit/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPtemplateId": "nxtPtemplateId"
+      },
+      "namedRegex": "^/dictionary/message\\-template/edit/(?<nxtPtemplateId>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/dictionary/message-template/view/[templateId]",
+      "regex": "^/dictionary/message\\-template/view/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPtemplateId": "nxtPtemplateId"
+      },
+      "namedRegex": "^/dictionary/message\\-template/view/(?<nxtPtemplateId>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/reports/[name]",
+      "regex": "^/reports/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPname": "nxtPname"
+      },
+      "namedRegex": "^/reports/(?<nxtPname>[^/]+?)(?:/)?$"
+    }
+  ],
+  "staticRoutes": [
+    {
+      "page": "/",
+      "regex": "^/(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/(?:/)?$"
+    },
+    {
+      "page": "/_not-found",
+      "regex": "^/_not\\-found(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/_not\\-found(?:/)?$"
+    },
+    {
+      "page": "/accounts-management",
+      "regex": "^/accounts\\-management(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/accounts\\-management(?:/)?$"
+    },
+    {
+      "page": "/address-book/groups",
+      "regex": "^/address\\-book/groups(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/address\\-book/groups(?:/)?$"
+    },
+    {
+      "page": "/address-book/members",
+      "regex": "^/address\\-book/members(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/address\\-book/members(?:/)?$"
+    },
+    {
+      "page": "/api/add",
+      "regex": "^/api/add(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/add(?:/)?$"
+    },
+    {
+      "page": "/api/proxy",
+      "regex": "^/api/proxy(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/proxy(?:/)?$"
+    },
+    {
+      "page": "/auth/callback",
+      "regex": "^/auth/callback(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/auth/callback(?:/)?$"
+    },
+    {
+      "page": "/campaigns",
+      "regex": "^/campaigns(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/campaigns(?:/)?$"
+    },
+    {
+      "page": "/credit-management/user-credits-push",
+      "regex": "^/credit\\-management/user\\-credits\\-push(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/credit\\-management/user\\-credits\\-push(?:/)?$"
+    },
+    {
+      "page": "/credit-management/user-credits-sms",
+      "regex": "^/credit\\-management/user\\-credits\\-sms(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/credit\\-management/user\\-credits\\-sms(?:/)?$"
+    },
+    {
+      "page": "/credit-reports/push/admin-consumption",
+      "regex": "^/credit\\-reports/push/admin\\-consumption(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/credit\\-reports/push/admin\\-consumption(?:/)?$"
+    },
+    {
+      "page": "/credit-reports/push/user-consumption",
+      "regex": "^/credit\\-reports/push/user\\-consumption(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/credit\\-reports/push/user\\-consumption(?:/)?$"
+    },
+    {
+      "page": "/credit-reports/push-statistics/admin",
+      "regex": "^/credit\\-reports/push\\-statistics/admin(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/credit\\-reports/push\\-statistics/admin(?:/)?$"
+    },
+    {
+      "page": "/credit-reports/push-statistics/user",
+      "regex": "^/credit\\-reports/push\\-statistics/user(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/credit\\-reports/push\\-statistics/user(?:/)?$"
+    },
+    {
+      "page": "/credit-reports/sms/admin-consumption",
+      "regex": "^/credit\\-reports/sms/admin\\-consumption(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/credit\\-reports/sms/admin\\-consumption(?:/)?$"
+    },
+    {
+      "page": "/credit-reports/sms/user-consumption",
+      "regex": "^/credit\\-reports/sms/user\\-consumption(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/credit\\-reports/sms/user\\-consumption(?:/)?$"
+    },
+    {
+      "page": "/credit-reports/sms-statistics/admin",
+      "regex": "^/credit\\-reports/sms\\-statistics/admin(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/credit\\-reports/sms\\-statistics/admin(?:/)?$"
+    },
+    {
+      "page": "/credit-reports/sms-statistics/user",
+      "regex": "^/credit\\-reports/sms\\-statistics/user(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/credit\\-reports/sms\\-statistics/user(?:/)?$"
+    },
+    {
+      "page": "/dashboard",
+      "regex": "^/dashboard(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/dashboard(?:/)?$"
+    },
+    {
+      "page": "/dictionary/department",
+      "regex": "^/dictionary/department(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/dictionary/department(?:/)?$"
+    },
+    {
+      "page": "/dictionary/message-template",
+      "regex": "^/dictionary/message\\-template(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/dictionary/message\\-template(?:/)?$"
+    },
+    {
+      "page": "/dictionary/message-template/add",
+      "regex": "^/dictionary/message\\-template/add(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/dictionary/message\\-template/add(?:/)?$"
+    },
+    {
+      "page": "/home",
+      "regex": "^/home(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/home(?:/)?$"
+    },
+    {
+      "page": "/login",
+      "regex": "^/login(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/login(?:/)?$"
+    },
+    {
+      "page": "/login_old",
+      "regex": "^/login_old(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/login_old(?:/)?$"
+    },
+    {
+      "page": "/login2",
+      "regex": "^/login2(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/login2(?:/)?$"
+    },
+    {
+      "page": "/loginSSO",
+      "regex": "^/loginSSO(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/loginSSO(?:/)?$"
+    },
+    {
+      "page": "/logout",
+      "regex": "^/logout(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/logout(?:/)?$"
+    },
+    {
+      "page": "/profile",
+      "regex": "^/profile(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/profile(?:/)?$"
+    },
+    {
+      "page": "/reports",
+      "regex": "^/reports(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/reports(?:/)?$"
+    },
+    {
+      "page": "/reports/mobile-specific-report",
+      "regex": "^/reports/mobile\\-specific\\-report(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/reports/mobile\\-specific\\-report(?:/)?$"
+    },
+    {
+      "page": "/select-tenant",
+      "regex": "^/select\\-tenant(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/select\\-tenant(?:/)?$"
+    },
+    {
+      "page": "/sender-id-management",
+      "regex": "^/sender\\-id\\-management(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/sender\\-id\\-management(?:/)?$"
+    },
+    {
+      "page": "/sender-id-management/assign-user",
+      "regex": "^/sender\\-id\\-management/assign\\-user(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/sender\\-id\\-management/assign\\-user(?:/)?$"
+    },
+    {
+      "page": "/sender-id-management/assign-user/form",
+      "regex": "^/sender\\-id\\-management/assign\\-user/form(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/sender\\-id\\-management/assign\\-user/form(?:/)?$"
+    },
+    {
+      "page": "/services",
+      "regex": "^/services(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/services(?:/)?$"
+    },
+    {
+      "page": "/settings",
+      "regex": "^/settings(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/settings(?:/)?$"
+    },
+    {
+      "page": "/tenant-management/tenants",
+      "regex": "^/tenant\\-management/tenants(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/tenant\\-management/tenants(?:/)?$"
+    },
+    {
+      "page": "/testing",
+      "regex": "^/testing(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/testing(?:/)?$"
+    },
+    {
+      "page": "/unauthorized",
+      "regex": "^/unauthorized(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/unauthorized(?:/)?$"
+    },
+    {
+      "page": "/user-management/roles",
+      "regex": "^/user\\-management/roles(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/user\\-management/roles(?:/)?$"
+    },
+    {
+      "page": "/user-management/users",
+      "regex": "^/user\\-management/users(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/user\\-management/users(?:/)?$"
+    }
+  ],
+  "dataRoutes": [],
+  "rsc": {
+    "header": "rsc",
+    "varyHeader": "rsc, next-router-state-tree, next-router-prefetch, next-router-segment-prefetch",
+    "prefetchHeader": "next-router-prefetch",
+    "didPostponeHeader": "x-nextjs-postponed",
+    "contentTypeHeader": "text/x-component",
+    "suffix": ".rsc",
+    "prefetchSegmentHeader": "next-router-segment-prefetch",
+    "prefetchSegmentSuffix": ".segment.rsc",
+    "prefetchSegmentDirSuffix": ".segments",
+    "clientParamParsing": false,
+    "dynamicRSCPrerender": false
+  },
+  "rewriteHeaders": {
+    "pathHeader": "x-nextjs-rewritten-path",
+    "queryHeader": "x-nextjs-rewritten-query"
+  }
+}
