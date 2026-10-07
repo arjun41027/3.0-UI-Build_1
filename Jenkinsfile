@@ -1,7 +1,7 @@
 pipeline {
 agent any
 
-```
+
 options {
     skipDefaultCheckout(true)
     timestamps()
@@ -320,7 +320,7 @@ $existingFiles = @(Get-ChildItem -LiteralPath $target -Force -ErrorAction Silent
 
 if ($existingFiles.Count -gt 0) {
 
-```
+
 Write-Host "Existing deployment found."
 Write-Host "Creating backup..."
 
@@ -333,7 +333,7 @@ Copy-Item `
     -Force
 
 Write-Host "Backup completed."
-```
+
 
 }
 else {
@@ -416,7 +416,7 @@ Write-Host "Backup : $backup"
 Write-Host "=========================================="
 POWERSHELL
 
-```
+
                     echo "PowerShell script created."
 
                     echo ""
@@ -516,6 +516,6 @@ post {
         ''' || true
     }
 }
-```
+
 
 }
