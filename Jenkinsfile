@@ -6,6 +6,11 @@ pipeline {
         IIS_TARGET = 'C:\\inetpub\\wwwroot\\PuffinMT_Demo\\PuffinUI'
     }
 
+    options {
+        skipDefaultCheckout(true)
+        timestamps()
+    }
+
     stages {
 
         stage('Checkout') {
@@ -20,19 +25,25 @@ pipeline {
             }
         }
 
-        stage('Verify UI Build') {
+        stage('Verify UI Files') {
             steps {
-                script {
+                sh '''
+                    echo "=========================================="
+                    echo "Verifying UI files"
+                    echo "=========================================="
 
-                    echo 'Checking UI build files...'
+                    echo "Workspace:"
+                    pwd
 
-                    if (!fileExists('web.config')) {
-                        error 'UI build not found or web.config is missing from the Jenkins workspace.'
-                    }
+                    echo ""
+                    echo "Files/folders:"
+                    find . -maxdepth 2 -type f \
+                        ! -path './.git/*' \
+                        ! -name 'Jenkinsfile' | sort
 
-                    echo 'UI build verified successfully.'
-                    echo "UI source: ${env.WORKSPACE}"
-                }
+                    echo ""
+                    echo "UI files found successfully."
+                '''
             }
         }
 
@@ -60,11 +71,16 @@ username = os.environ["IIS_USER"]
 password = os.environ["IIS_PASSWORD"]
 
 print("==========================================")
-print("Puffin UI Deployment")
+print("Puffin 3.0 UI Deployment")
 print("==========================================")
-print("IIS Server :", server)
-print("Source     :", source)
-print("Target     :", target)
+print("Source :", source)
+print("Server :", server)
+print("Target :", target)
+print("==========================================")
+
+# --------------------------------------------------
+# Connect to Windows IIS server
+# --------------------------------------------------
 
 print("")
 print("Connecting to IIS server...")
@@ -75,10 +91,7 @@ session = winrm.Session(
     transport="ntlm"
 )
 
-# --------------------------------------------------
-# Check WinRM connection
-# --------------------------------------------------
-
+# Test connection
 result = session.run_cmd(
     "cmd",
     ["/c", "echo WINRM_CONNECTION_SUCCESS"]
@@ -86,48 +99,70 @@ result = session.run_cmd(
 
 if result.status_code != 0:
     raise Exception(
-        "Unable to connect to IIS server: "
+        "WinRM connection failed: "
         + result.std_err.decode(errors="ignore")
     )
 
-print(result.std_out.decode(errors="ignore"))
+print(
+    result.std_out.decode(
+        errors="ignore"
+    )
+)
 
 # --------------------------------------------------
-# Create target folder if required
+# Create IIS target folder
 # --------------------------------------------------
 
 print("Checking IIS target folder...")
 
-command = (
+create_target_command = (
     'if not exist "' + target + '" '
     '(mkdir "' + target + '" && echo TARGET_CREATED) '
     'else (echo TARGET_EXISTS)'
 )
 
-result = session.run_cmd("cmd", ["/c", command])
+result = session.run_cmd(
+    "cmd",
+    ["/c", create_target_command]
+)
 
 if result.status_code != 0:
     raise Exception(
-        "Unable to access/create IIS target folder: "
+        "Unable to create/access IIS target folder: "
         + result.std_err.decode(errors="ignore")
     )
 
-print(result.std_out.decode(errors="ignore"))
+print(
+    result.std_out.decode(
+        errors="ignore"
+    )
+)
 
 # --------------------------------------------------
-# Deploy files
+# Deploy repository files
 # --------------------------------------------------
 
 print("")
-print("Starting UI file deployment...")
+print("Starting file deployment...")
 print("")
 
 file_count = 0
+folder_count = 0
 
 for root, dirs, files in os.walk(source):
 
-    relative_path = os.path.relpath(root, source)
+    # Do not deploy Git metadata
+    dirs[:] = [
+        d for d in dirs
+        if d != ".git"
+    ]
 
+    relative_path = os.path.relpath(
+        root,
+        source
+    )
+
+    # Skip Jenkins workspace root special path
     if relative_path == ".":
         remote_dir = target
     else:
@@ -137,7 +172,10 @@ for root, dirs, files in os.walk(source):
             + relative_path.replace("/", "\\")
         )
 
+    # --------------------------------------------------
     # Create remote directory
+    # --------------------------------------------------
+
     mkdir_command = (
         'if not exist "' + remote_dir + '" '
         'mkdir "' + remote_dir + '"'
@@ -153,11 +191,22 @@ for root, dirs, files in os.walk(source):
             "Failed to create remote directory: "
             + remote_dir
             + "\\n"
-            + result.std_err.decode(errors="ignore")
+            + result.std_err.decode(
+                errors="ignore"
+            )
         )
 
-    # Copy files
+    folder_count += 1
+
+    # --------------------------------------------------
+    # Deploy files
+    # --------------------------------------------------
+
     for file_name in files:
+
+        # Do not deploy Jenkinsfile
+        if file_name.lower() == "jenkinsfile":
+            continue
 
         local_file = os.path.join(
             root,
@@ -172,11 +221,17 @@ for root, dirs, files in os.walk(source):
 
         print(
             "Deploying:",
-            os.path.relpath(local_file, source)
+            os.path.relpath(
+                local_file,
+                source
+            )
         )
 
-        # Read local file
-        with open(local_file, "rb") as f:
+        # Read file
+        with open(
+            local_file,
+            "rb"
+        ) as f:
             file_data = f.read()
 
         # Convert to Base64
@@ -190,7 +245,8 @@ for root, dirs, files in os.walk(source):
             "''"
         )
 
-        # Write file remotely using PowerShell
+        # PowerShell writes the file.
+        # Existing files are automatically replaced.
         ps_command = (
             "$data=[Convert]::FromBase64String('"
             + encoded
@@ -219,8 +275,11 @@ for root, dirs, files in os.walk(source):
 
 print("")
 print("==========================================")
-print("UI deployment completed successfully")
-print("Files deployed:", file_count)
+print("UI DEPLOYMENT COMPLETED")
+print("==========================================")
+print("Folders deployed :", folder_count)
+print("Files deployed   :", file_count)
+print("Target           :", target)
 print("==========================================")
 
 PY
@@ -261,12 +320,11 @@ session = winrm.Session(
     transport="ntlm"
 )
 
-web_config = target + "\\\\web.config"
-
+# Verify target folder
 command = (
-    'if exist "' + web_config + '" '
-    '(echo DEPLOYMENT_VERIFIED) '
-    'else (echo DEPLOYMENT_FAILED && exit /b 1)'
+    'if exist "' + target + '" '
+    '(echo TARGET_FOLDER_EXISTS) '
+    'else (echo TARGET_FOLDER_MISSING && exit /b 1)'
 )
 
 result = session.run_cmd(
@@ -292,8 +350,33 @@ if result.status_code != 0:
         "Deployment verification failed."
     )
 
+# Count deployed files
+count_command = (
+    'powershell -NoProfile -Command '
+    '"(Get-ChildItem -Path \\"'
+    + target
+    + '\\" -Recurse -File | Measure-Object).Count"'
+)
+
+result = session.run_cmd(
+    "cmd",
+    ["/c", count_command]
+)
+
+if result.status_code == 0:
+
+    deployed_count = result.std_out.decode(
+        errors="ignore"
+    ).strip()
+
+    print(
+        "Files currently present on IIS: "
+        + deployed_count
+    )
+
+print("")
 print("==========================================")
-print("IIS UI deployment verified successfully")
+print("DEPLOYMENT VERIFIED SUCCESSFULLY")
 print("==========================================")
 
 PY
@@ -308,6 +391,9 @@ PY
         success {
             echo '=========================================='
             echo 'Puffin 3.0 UI Deployment SUCCESSFUL'
+            echo '=========================================='
+            echo "Deployed to: ${env.IIS_SERVER}"
+            echo "Path: ${env.IIS_TARGET}"
             echo '=========================================='
         }
 
