@@ -4,6 +4,7 @@ pipeline {
     environment {
         IIS_SERVER = '172.16.4.166'
         IIS_TARGET = 'C:\\inetpub\\wwwroot\\PuffinMT_Demo\\PuffinUI'
+        DEPLOY_ZIP = 'PuffinUI_Deployment.zip'
     }
 
     options {
@@ -32,17 +33,39 @@ pipeline {
                     echo "Verifying UI files"
                     echo "=========================================="
 
-                    echo "Workspace:"
                     pwd
 
                     echo ""
-                    echo "Files/folders:"
+                    echo "Repository contents:"
                     find . -maxdepth 2 -type f \
                         ! -path './.git/*' \
                         ! -name 'Jenkinsfile' | sort
 
                     echo ""
-                    echo "UI files found successfully."
+                    echo "UI files verified."
+                '''
+            }
+        }
+
+        stage('Create Deployment ZIP') {
+            steps {
+                sh '''
+                    echo "=========================================="
+                    echo "Creating deployment ZIP"
+                    echo "=========================================="
+
+                    rm -f "$DEPLOY_ZIP"
+
+                    zip -r "$DEPLOY_ZIP" . \
+                        -x ".git/*" \
+                        -x ".git/**" \
+                        -x "Jenkinsfile"
+
+                    echo ""
+                    echo "Deployment ZIP created:"
+                    ls -lh "$DEPLOY_ZIP"
+
+                    echo "=========================================="
                 '''
             }
         }
@@ -61,25 +84,29 @@ pipeline {
                     sh '''
 python3 - <<'PY'
 import os
-import winrm
 import base64
+import winrm
 
 server = os.environ["IIS_SERVER"]
 target = os.environ["IIS_TARGET"]
-source = os.environ["WORKSPACE"]
+zip_file = os.path.join(
+    os.environ["WORKSPACE"],
+    os.environ["DEPLOY_ZIP"]
+)
+
 username = os.environ["IIS_USER"]
 password = os.environ["IIS_PASSWORD"]
 
 print("==========================================")
 print("Puffin 3.0 UI Deployment")
 print("==========================================")
-print("Source :", source)
 print("Server :", server)
 print("Target :", target)
+print("ZIP    :", zip_file)
 print("==========================================")
 
 # --------------------------------------------------
-# Connect to Windows IIS server
+# Connect to Windows server
 # --------------------------------------------------
 
 print("")
@@ -91,7 +118,6 @@ session = winrm.Session(
     transport="ntlm"
 )
 
-# Test connection
 result = session.run_cmd(
     "cmd",
     ["/c", "echo WINRM_CONNECTION_SUCCESS"]
@@ -110,25 +136,27 @@ print(
 )
 
 # --------------------------------------------------
-# Create IIS target folder
+# Check / create IIS target
 # --------------------------------------------------
 
 print("Checking IIS target folder...")
 
-create_target_command = (
-    'if not exist "' + target + '" '
-    '(mkdir "' + target + '" && echo TARGET_CREATED) '
-    'else (echo TARGET_EXISTS)'
-)
+ps_check = f"""
+$target = '{target}'
+if (-not (Test-Path -LiteralPath $target)) {{
+    New-Item -ItemType Directory -Path $target -Force | Out-Null
+    Write-Output 'TARGET_CREATED'
+}}
+else {{
+    Write-Output 'TARGET_EXISTS'
+}}
+"""
 
-result = session.run_cmd(
-    "cmd",
-    ["/c", create_target_command]
-)
+result = session.run_ps(ps_check)
 
 if result.status_code != 0:
     raise Exception(
-        "Unable to create/access IIS target folder: "
+        "Unable to create/access target folder: "
         + result.std_err.decode(errors="ignore")
     )
 
@@ -139,147 +167,140 @@ print(
 )
 
 # --------------------------------------------------
-# Deploy repository files
+# Read ZIP
 # --------------------------------------------------
 
 print("")
-print("Starting file deployment...")
+print("Reading deployment ZIP...")
+
+with open(zip_file, "rb") as f:
+    zip_data = f.read()
+
+print(
+    "ZIP size:",
+    round(len(zip_data) / 1024 / 1024, 2),
+    "MB"
+)
+
+# --------------------------------------------------
+# Upload ZIP using Base64
+# --------------------------------------------------
+
 print("")
+print("Uploading deployment ZIP to IIS server...")
 
-file_count = 0
-folder_count = 0
+encoded = base64.b64encode(
+    zip_data
+).decode("ascii")
 
-for root, dirs, files in os.walk(source):
+remote_zip = (
+    "C:\\Windows\\Temp\\PuffinUI_Deployment.zip"
+)
 
-    # Do not deploy Git metadata
-    dirs[:] = [
-        d for d in dirs
-        if d != ".git"
-    ]
+safe_remote_zip = remote_zip.replace(
+    "'",
+    "''"
+)
 
-    relative_path = os.path.relpath(
-        root,
-        source
+ps_upload = (
+    "$data=[Convert]::FromBase64String('"
+    + encoded
+    + "');"
+    "[IO.File]::WriteAllBytes('"
+    + safe_remote_zip
+    + "', $data)"
+)
+
+result = session.run_ps(
+    ps_upload
+)
+
+if result.status_code != 0:
+    raise Exception(
+        "Failed to upload deployment ZIP: "
+        + result.std_err.decode(
+            errors="ignore"
+        )
     )
 
-    # Skip Jenkins workspace root special path
-    if relative_path == ".":
-        remote_dir = target
-    else:
-        remote_dir = (
-            target
-            + "\\"
-            + relative_path.replace("/", "\\")
+print("ZIP uploaded successfully.")
+
+# --------------------------------------------------
+# Extract ZIP
+# --------------------------------------------------
+
+print("")
+print("Extracting UI files...")
+
+ps_extract = f"""
+$zip = '{remote_zip}'
+$target = '{target}'
+
+if (-not (Test-Path -LiteralPath $target)) {{
+    New-Item -ItemType Directory -Path $target -Force | Out-Null
+}}
+
+Expand-Archive `
+    -LiteralPath $zip `
+    -DestinationPath $target `
+    -Force
+
+Write-Output 'EXTRACTION_SUCCESS'
+"""
+
+result = session.run_ps(
+    ps_extract
+)
+
+if result.status_code != 0:
+
+    print(
+        result.std_err.decode(
+            errors="ignore"
         )
-
-    # --------------------------------------------------
-    # Create remote directory
-    # --------------------------------------------------
-
-    mkdir_command = (
-        'if not exist "' + remote_dir + '" '
-        'mkdir "' + remote_dir + '"'
     )
 
-    result = session.run_cmd(
-        "cmd",
-        ["/c", mkdir_command]
+    raise Exception(
+        "Failed to extract deployment ZIP."
     )
 
-    if result.status_code != 0:
-        raise Exception(
-            "Failed to create remote directory: "
-            + remote_dir
-            + "\\n"
-            + result.std_err.decode(
-                errors="ignore"
-            )
-        )
+print(
+    result.std_out.decode(
+        errors="ignore"
+    )
+)
 
-    folder_count += 1
+# --------------------------------------------------
+# Remove temporary ZIP
+# --------------------------------------------------
 
-    # --------------------------------------------------
-    # Deploy files
-    # --------------------------------------------------
+print("Removing temporary ZIP...")
 
-    for file_name in files:
+ps_cleanup = f"""
+$zip = '{remote_zip}'
 
-        # Do not deploy Jenkinsfile
-        if file_name.lower() == "jenkinsfile":
-            continue
+if (Test-Path -LiteralPath $zip) {{
+    Remove-Item -LiteralPath $zip -Force
+}}
 
-        local_file = os.path.join(
-            root,
-            file_name
-        )
+Write-Output 'TEMP_FILE_REMOVED'
+"""
 
-        remote_file = (
-            remote_dir
-            + "\\"
-            + file_name
-        )
+result = session.run_ps(
+    ps_cleanup
+)
 
-        print(
-            "Deploying:",
-            os.path.relpath(
-                local_file,
-                source
-            )
-        )
-
-        # Read file
-        with open(
-            local_file,
-            "rb"
-        ) as f:
-            file_data = f.read()
-
-        # Convert to Base64
-        encoded = base64.b64encode(
-            file_data
-        ).decode("ascii")
-
-        # Escape single quotes
-        safe_remote_file = remote_file.replace(
-            "'",
-            "''"
-        )
-
-        # PowerShell writes the file.
-        # Existing files are automatically replaced.
-        ps_command = (
-            "$data=[Convert]::FromBase64String('"
-            + encoded
-            + "');"
-            "[IO.File]::WriteAllBytes('"
-            + safe_remote_file
-            + "', $data)"
-        )
-
-        result = session.run_ps(
-            ps_command
-        )
-
-        if result.status_code != 0:
-
-            raise Exception(
-                "Failed to deploy file: "
-                + local_file
-                + "\\n"
-                + result.std_err.decode(
-                    errors="ignore"
-                )
-            )
-
-        file_count += 1
+if result.status_code != 0:
+    print(
+        "Warning: Could not remove temporary ZIP."
+    )
 
 print("")
 print("==========================================")
-print("UI DEPLOYMENT COMPLETED")
+print("UI DEPLOYMENT COMPLETED SUCCESSFULLY")
 print("==========================================")
-print("Folders deployed :", folder_count)
-print("Files deployed   :", file_count)
-print("Target           :", target)
+print("Server :", server)
+print("Target :", target)
 print("==========================================")
 
 PY
@@ -320,16 +341,29 @@ session = winrm.Session(
     transport="ntlm"
 )
 
-# Verify target folder
-command = (
-    'if exist "' + target + '" '
-    '(echo TARGET_FOLDER_EXISTS) '
-    'else (echo TARGET_FOLDER_MISSING && exit /b 1)'
-)
+# Verify target folder and files
+ps_verify = f"""
+$target = '{target}'
 
-result = session.run_cmd(
-    "cmd",
-    ["/c", command]
+if (-not (Test-Path -LiteralPath $target)) {{
+    Write-Error 'TARGET_FOLDER_NOT_FOUND'
+    exit 1
+}}
+
+$count = (
+    Get-ChildItem `
+        -LiteralPath $target `
+        -Recurse `
+        -File |
+    Measure-Object
+).Count
+
+Write-Output "DEPLOYMENT_VERIFIED"
+Write-Output "FILES_ON_SERVER=$count"
+"""
+
+result = session.run_ps(
+    ps_verify
 )
 
 print(
@@ -350,30 +384,6 @@ if result.status_code != 0:
         "Deployment verification failed."
     )
 
-# Count deployed files
-count_command = (
-    'powershell -NoProfile -Command '
-    '"(Get-ChildItem -Path \\"'
-    + target
-    + '\\" -Recurse -File | Measure-Object).Count"'
-)
-
-result = session.run_cmd(
-    "cmd",
-    ["/c", count_command]
-)
-
-if result.status_code == 0:
-
-    deployed_count = result.std_out.decode(
-        errors="ignore"
-    ).strip()
-
-    print(
-        "Files currently present on IIS: "
-        + deployed_count
-    )
-
 print("")
 print("==========================================")
 print("DEPLOYMENT VERIFIED SUCCESSFULLY")
@@ -392,8 +402,8 @@ PY
             echo '=========================================='
             echo 'Puffin 3.0 UI Deployment SUCCESSFUL'
             echo '=========================================='
-            echo "Deployed to: ${env.IIS_SERVER}"
-            echo "Path: ${env.IIS_TARGET}"
+            echo "Server: ${env.IIS_SERVER}"
+            echo "Target: ${env.IIS_TARGET}"
             echo '=========================================='
         }
 
@@ -401,6 +411,12 @@ PY
             echo '=========================================='
             echo 'Puffin 3.0 UI Deployment FAILED'
             echo '=========================================='
+        }
+
+        always {
+            sh '''
+                rm -f "$DEPLOY_ZIP" 2>/dev/null || true
+            '''
         }
     }
 }
