@@ -4,32 +4,41 @@ pipeline {
     environment {
         IIS_SERVER = '172.16.4.166'
         IIS_TARGET = 'C:\\inetpub\\wwwroot\\PuffinMT_Demo\\PuffinUI'
-        UI_BUILD_PATH = 'Desktop/3.0 UI and API Docs/3.0 UI Build'
     }
 
     stages {
 
         stage('Checkout') {
             steps {
-                echo 'Checking out latest UI build from GitHub...'
+                echo '=========================================='
+                echo 'Checking out latest UI build from GitHub'
+                echo '=========================================='
+
                 checkout scm
+
+                echo "Workspace: ${env.WORKSPACE}"
             }
         }
 
         stage('Verify UI Build') {
             steps {
                 script {
-                    if (!fileExists("${env.UI_BUILD_PATH}/web.config")) {
-                        error "UI build not found or web.config is missing: ${env.UI_BUILD_PATH}"
+
+                    echo 'Checking UI build files...'
+
+                    if (!fileExists('web.config')) {
+                        error 'UI build not found or web.config is missing from the Jenkins workspace.'
                     }
 
-                    echo "UI build verified successfully."
+                    echo 'UI build verified successfully.'
+                    echo "UI source: ${env.WORKSPACE}"
                 }
             }
         }
 
         stage('Deploy UI to IIS') {
             steps {
+
                 withCredentials([
                     usernamePassword(
                         credentialsId: 'puffin-iis-winrm',
@@ -39,17 +48,26 @@ pipeline {
                 ]) {
 
                     sh '''
-                        python3 - <<'PY'
+python3 - <<'PY'
 import os
 import winrm
+import base64
 
 server = os.environ["IIS_SERVER"]
 target = os.environ["IIS_TARGET"]
-source = os.environ["UI_BUILD_PATH"]
+source = os.environ["WORKSPACE"]
 username = os.environ["IIS_USER"]
 password = os.environ["IIS_PASSWORD"]
 
-print("Connecting to IIS server:", server)
+print("==========================================")
+print("Puffin UI Deployment")
+print("==========================================")
+print("IIS Server :", server)
+print("Source     :", source)
+print("Target     :", target)
+
+print("")
+print("Connecting to IIS server...")
 
 session = winrm.Session(
     f"http://{server}:5985/wsman",
@@ -57,15 +75,34 @@ session = winrm.Session(
     transport="ntlm"
 )
 
-# Check/create target folder
-command = f'''
-if not exist "{target}" (
-    mkdir "{target}"
-    echo TARGET_CREATED
-) else (
-    echo TARGET_EXISTS
+# --------------------------------------------------
+# Check WinRM connection
+# --------------------------------------------------
+
+result = session.run_cmd(
+    "cmd",
+    ["/c", "echo WINRM_CONNECTION_SUCCESS"]
 )
-'''
+
+if result.status_code != 0:
+    raise Exception(
+        "Unable to connect to IIS server: "
+        + result.std_err.decode(errors="ignore")
+    )
+
+print(result.std_out.decode(errors="ignore"))
+
+# --------------------------------------------------
+# Create target folder if required
+# --------------------------------------------------
+
+print("Checking IIS target folder...")
+
+command = (
+    'if not exist "' + target + '" '
+    '(mkdir "' + target + '" && echo TARGET_CREATED) '
+    'else (echo TARGET_EXISTS)'
+)
 
 result = session.run_cmd("cmd", ["/c", command])
 
@@ -77,9 +114,15 @@ if result.status_code != 0:
 
 print(result.std_out.decode(errors="ignore"))
 
-# Copy build files using PowerShell Remoting
-# Files with the same name are overwritten.
+# --------------------------------------------------
+# Deploy files
+# --------------------------------------------------
+
+print("")
 print("Starting UI file deployment...")
+print("")
+
+file_count = 0
 
 for root, dirs, files in os.walk(source):
 
@@ -88,53 +131,98 @@ for root, dirs, files in os.walk(source):
     if relative_path == ".":
         remote_dir = target
     else:
-        remote_dir = target + "\\" + relative_path.replace("/", "\\")
+        remote_dir = (
+            target
+            + "\\"
+            + relative_path.replace("/", "\\")
+        )
 
-    # Create directory
-    mkdir_command = f'if not exist "{remote_dir}" mkdir "{remote_dir}"'
+    # Create remote directory
+    mkdir_command = (
+        'if not exist "' + remote_dir + '" '
+        'mkdir "' + remote_dir + '"'
+    )
 
-    result = session.run_cmd("cmd", ["/c", mkdir_command])
+    result = session.run_cmd(
+        "cmd",
+        ["/c", mkdir_command]
+    )
 
     if result.status_code != 0:
         raise Exception(
             "Failed to create remote directory: "
             + remote_dir
+            + "\\n"
+            + result.std_err.decode(errors="ignore")
         )
 
-    # Copy each file
+    # Copy files
     for file_name in files:
 
-        local_file = os.path.join(root, file_name)
-        remote_file = remote_dir + "\\" + file_name
+        local_file = os.path.join(
+            root,
+            file_name
+        )
 
-        # Base64 transfer
-        import base64
+        remote_file = (
+            remote_dir
+            + "\\"
+            + file_name
+        )
 
+        print(
+            "Deploying:",
+            os.path.relpath(local_file, source)
+        )
+
+        # Read local file
         with open(local_file, "rb") as f:
-            encoded = base64.b64encode(f.read()).decode("ascii")
+            file_data = f.read()
 
+        # Convert to Base64
+        encoded = base64.b64encode(
+            file_data
+        ).decode("ascii")
+
+        # Escape single quotes
+        safe_remote_file = remote_file.replace(
+            "'",
+            "''"
+        )
+
+        # Write file remotely using PowerShell
         ps_command = (
             "$data=[Convert]::FromBase64String('"
             + encoded
             + "');"
             "[IO.File]::WriteAllBytes('"
-            + remote_file.replace("'", "''")
+            + safe_remote_file
             + "', $data)"
         )
 
-        result = session.run_ps(ps_command)
+        result = session.run_ps(
+            ps_command
+        )
 
         if result.status_code != 0:
+
             raise Exception(
                 "Failed to deploy file: "
                 + local_file
-                + "\n"
-                + result.std_err.decode(errors="ignore")
+                + "\\n"
+                + result.std_err.decode(
+                    errors="ignore"
+                )
             )
 
-        print("Deployed:", relative_path, "/", file_name)
+        file_count += 1
 
-print("UI deployment completed successfully.")
+print("")
+print("==========================================")
+print("UI deployment completed successfully")
+print("Files deployed:", file_count)
+print("==========================================")
+
 PY
                     '''
                 }
@@ -143,6 +231,7 @@ PY
 
         stage('Verify Deployment') {
             steps {
+
                 withCredentials([
                     usernamePassword(
                         credentialsId: 'puffin-iis-winrm',
@@ -152,37 +241,61 @@ PY
                 ]) {
 
                     sh '''
-                        python3 - <<'PY'
+python3 - <<'PY'
 import os
 import winrm
 
+server = os.environ["IIS_SERVER"]
+target = os.environ["IIS_TARGET"]
+
+username = os.environ["IIS_USER"]
+password = os.environ["IIS_PASSWORD"]
+
+print("==========================================")
+print("Verifying IIS Deployment")
+print("==========================================")
+
 session = winrm.Session(
-    "http://172.16.4.166:5985/wsman",
-    auth=(
-        os.environ["IIS_USER"],
-        os.environ["IIS_PASSWORD"]
-    ),
+    f"http://{server}:5985/wsman",
+    auth=(username, password),
     transport="ntlm"
 )
 
-command = r'''
-if exist "C:\\inetpub\\wwwroot\\PuffinMT_Demo\\PuffinUI\\web.config" (
-    echo DEPLOYMENT_VERIFIED
-) else (
-    echo DEPLOYMENT_FAILED
-    exit /b 1
+web_config = target + "\\\\web.config"
+
+command = (
+    'if exist "' + web_config + '" '
+    '(echo DEPLOYMENT_VERIFIED) '
+    'else (echo DEPLOYMENT_FAILED && exit /b 1)'
 )
-'''
 
-result = session.run_cmd("cmd", ["/c", command])
+result = session.run_cmd(
+    "cmd",
+    ["/c", command]
+)
 
-print(result.std_out.decode(errors="ignore"))
+print(
+    result.std_out.decode(
+        errors="ignore"
+    )
+)
 
 if result.status_code != 0:
-    print(result.std_err.decode(errors="ignore"))
-    raise Exception("Deployment verification failed.")
 
-print("IIS UI deployment verified successfully.")
+    print(
+        result.std_err.decode(
+            errors="ignore"
+        )
+    )
+
+    raise Exception(
+        "Deployment verification failed."
+    )
+
+print("==========================================")
+print("IIS UI deployment verified successfully")
+print("==========================================")
+
 PY
                     '''
                 }
@@ -191,6 +304,7 @@ PY
     }
 
     post {
+
         success {
             echo '=========================================='
             echo 'Puffin 3.0 UI Deployment SUCCESSFUL'
