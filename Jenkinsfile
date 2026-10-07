@@ -1,7 +1,7 @@
 pipeline {
 agent any
 
-
+```
 options {
     skipDefaultCheckout(true)
     timestamps()
@@ -79,7 +79,7 @@ stages {
 
                 echo ""
                 echo "Top-level files:"
-                find "$UI_SOURCE" -maxdepth 1 -type f -printf '%f\\n' | sort
+                find "$UI_SOURCE" -maxdepth 1 -type f -printf '%f\n' | sort
 
                 echo ""
                 echo "UI SOURCE VALIDATION SUCCESS"
@@ -197,7 +197,7 @@ stages {
                         -o StrictHostKeyChecking=no \
                         -o UserKnownHostsFile=/dev/null \
                         "$SSH_USER@$IIS_SERVER" \
-                        "powershell.exe -NoProfile -Command \"New-Item -ItemType Directory -Path 'C:\\\\Windows\\\\Temp\\\\PuffinUI_Deployment' -Force | Out-Null; Write-Host 'Remote directory ready.'\""
+                        "powershell.exe -NoProfile -Command \"New-Item -ItemType Directory -Path 'C:\\Windows\\Temp\\PuffinUI_Deployment' -Force | Out-Null; Write-Host 'Remote directory ready.'\""
 
                     echo ""
                     echo "REMOTE DIRECTORY READY"
@@ -245,7 +245,7 @@ stages {
                         -o StrictHostKeyChecking=no \
                         -o UserKnownHostsFile=/dev/null \
                         "$SSH_USER@$IIS_SERVER" \
-                        "powershell.exe -NoProfile -Command \"if (!(Test-Path -LiteralPath 'C:\\\\Windows\\\\Temp\\\\PuffinUI_Deployment\\\\PuffinUI_Deployment.zip')) { throw 'Remote ZIP not found' }; Get-Item 'C:\\\\Windows\\\\Temp\\\\PuffinUI_Deployment\\\\PuffinUI_Deployment.zip' | Select-Object FullName,Length\""
+                        "powershell.exe -NoProfile -Command \"if (!(Test-Path -LiteralPath 'C:\\Windows\\Temp\\PuffinUI_Deployment\\PuffinUI_Deployment.zip')) { throw 'Remote ZIP not found' }; Get-Item 'C:\\Windows\\Temp\\PuffinUI_Deployment\\PuffinUI_Deployment.zip' | Select-Object FullName,Length\""
 
                     echo ""
                     echo "SCP UPLOAD SUCCESS"
@@ -320,7 +320,7 @@ $existingFiles = @(Get-ChildItem -LiteralPath $target -Force -ErrorAction Silent
 
 if ($existingFiles.Count -gt 0) {
 
-
+```
 Write-Host "Existing deployment found."
 Write-Host "Creating backup..."
 
@@ -333,7 +333,7 @@ Copy-Item `
     -Force
 
 Write-Host "Backup completed."
-
+```
 
 }
 else {
@@ -416,7 +416,7 @@ Write-Host "Backup : $backup"
 Write-Host "=========================================="
 POWERSHELL
 
-
+```
                     echo "PowerShell script created."
 
                     echo ""
@@ -472,7 +472,13 @@ POWERSHELL
                         -o StrictHostKeyChecking=no \
                         -o UserKnownHostsFile=/dev/null \
                         "$SSH_USER@$IIS_SERVER" \
-                        "powershell.exe -NoProfile -Command \"\\$target='C:\\\\inetpub\\\\wwwroot\\\\PuffinMT_Demo\\\\PuffinUI'; if (!(Test-Path -LiteralPath \\$target)) { throw 'IIS target directory does not exist' }; if (!(Test-Path -LiteralPath (Join-Path \\$target 'package.json'))) { throw 'package.json missing' }; if (!(Test-Path -LiteralPath (Join-Path \\$target 'web.config'))) { throw 'web.config missing' }; \\$count=@(Get-ChildItem -LiteralPath \\$target -Recurse -File).Count; Write-Host 'Target:' \\$target; Write-Host 'File count:' \\$count; Write-Host 'package.json: FOUND'; Write-Host 'web.config: FOUND'; Write-Host 'Deployment verification successful.'\""
+                        "powershell.exe -NoProfile -Command \"\$target='C:\\Windows\\Temp\\PuffinUI_Deployment'; Write-Host 'Verification completed.'\""
+
+                    sshpass -e ssh \
+                        -o StrictHostKeyChecking=no \
+                        -o UserKnownHostsFile=/dev/null \
+                        "$SSH_USER@$IIS_SERVER" \
+                        "powershell.exe -NoProfile -Command \"\$target='C:\\inetpub\\wwwroot\\PuffinMT_Demo\\PuffinUI'; if (!(Test-Path -LiteralPath \$target)) { throw 'IIS target directory does not exist' }; if (!(Test-Path -LiteralPath (Join-Path \$target 'package.json'))) { throw 'package.json missing' }; if (!(Test-Path -LiteralPath (Join-Path \$target 'web.config'))) { throw 'web.config missing' }; \$count=@(Get-ChildItem -LiteralPath \$target -Recurse -File).Count; Write-Host 'Target:' \$target; Write-Host 'File count:' \$count; Write-Host 'package.json: FOUND'; Write-Host 'web.config: FOUND'; Write-Host 'Deployment verification successful.'\""
 
                     echo ""
                     echo "=========================================="
@@ -516,6 +522,6 @@ post {
         ''' || true
     }
 }
-
+```
 
 }
