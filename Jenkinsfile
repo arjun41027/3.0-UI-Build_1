@@ -89,12 +89,9 @@ pipeline {
                 sh '''
                     set -e
 
-                    echo "Removing old ZIP and chunks..."
-
                     rm -f "$DEPLOY_ZIP"
                     rm -rf deployment_chunks
 
-                    echo ""
                     echo "Creating deployment ZIP..."
 
                     cd "$UI_SOURCE"
@@ -163,7 +160,7 @@ pipeline {
 
                     echo ""
                     echo "Chunks created:"
-                    ls -lh deployment_chunks
+                    ls -lh deployment_chunks | head -20
 
                     echo ""
                     echo "Number of chunks:"
@@ -198,22 +195,39 @@ import glob
 import sys
 import winrm
 
+
+# ============================================================
+# CONFIGURATION
+# ============================================================
+
 IIS_SERVER = os.environ["IIS_SERVER"]
 IIS_TARGET = os.environ["IIS_TARGET"]
+
 WINRM_USER = os.environ["WINRM_USER"]
 WINRM_PASSWORD = os.environ["WINRM_PASSWORD"]
 
-REMOTE_TEMP = r"C:\\Windows\\Temp\\PuffinUI_Deployment"
-REMOTE_ZIP = REMOTE_TEMP + r"\\PuffinUI_Deployment.zip"
+# Windows backslash without writing "\\" in the Python source
+BS = chr(92)
 
+REMOTE_TEMP = "C:" + BS + "Windows" + BS + "Temp" + BS + "PuffinUI_Deployment"
+REMOTE_ZIP = REMOTE_TEMP + BS + "PuffinUI_Deployment.zip"
+
+
+# ============================================================
+# WINRM CONNECTION
+# ============================================================
+
+print("")
 print("==========================================")
 print("WINRM CONNECTION")
 print("==========================================")
 
-print("Server:", IIS_SERVER)
-print("User:", WINRM_USER)
+print("IIS Server :", IIS_SERVER)
+print("WinRM User :", WINRM_USER)
+print("Endpoint   : http://" + IIS_SERVER + ":5985/wsman")
 
 try:
+
     session = winrm.Session(
         "http://" + IIS_SERVER + ":5985/wsman",
         auth=(WINRM_USER, WINRM_PASSWORD),
@@ -224,19 +238,31 @@ try:
         'Write-Output "WINRM_CONNECTION_SUCCESS"'
     )
 
-    print(result.std_out.decode(errors="ignore"))
+    stdout = result.std_out.decode(errors="ignore")
+    stderr = result.std_err.decode(errors="ignore")
+
+    print(stdout)
 
     if result.status_code != 0:
+
         print("ERROR: WinRM connection failed")
-        print(result.std_err.decode(errors="ignore"))
+        print(stderr)
+
         sys.exit(1)
 
 except Exception as e:
+
     print("ERROR: Unable to connect to WinRM")
     print(str(e))
+
     sys.exit(1)
 
 
+# ============================================================
+# PREPARE REMOTE TEMP DIRECTORY
+# ============================================================
+
+print("")
 print("==========================================")
 print("PREPARE REMOTE TEMP DIRECTORY")
 print("==========================================")
@@ -250,22 +276,36 @@ if (Test-Path $remoteTemp) {{
     Remove-Item $remoteTemp -Recurse -Force
 }}
 
-New-Item -ItemType Directory -Path $remoteTemp -Force | Out-Null
+New-Item `
+    -ItemType Directory `
+    -Path $remoteTemp `
+    -Force | Out-Null
 
 Write-Output "REMOTE_TEMP_READY"
 """
 
 result = session.run_ps(prepare_script)
 
-print(result.std_out.decode(errors="ignore"))
+stdout = result.std_out.decode(errors="ignore")
+stderr = result.std_err.decode(errors="ignore")
+
+print(stdout)
 
 if result.status_code != 0:
-    print(result.std_err.decode(errors="ignore"))
+
+    print("ERROR preparing remote directory")
+    print(stderr)
+
     sys.exit(1)
 
 
+# ============================================================
+# FIND LOCAL CHUNKS
+# ============================================================
+
+print("")
 print("==========================================")
-print("UPLOAD ZIP CHUNKS")
+print("FIND ZIP CHUNKS")
 print("==========================================")
 
 chunks = sorted(
@@ -273,10 +313,24 @@ chunks = sorted(
 )
 
 if not chunks:
+
     print("ERROR: No ZIP chunks found")
+
     sys.exit(1)
 
 print("Total chunks:", len(chunks))
+
+
+# ============================================================
+# UPLOAD CHUNKS
+# ============================================================
+
+print("")
+print("==========================================")
+print("UPLOAD ZIP CHUNKS")
+print("==========================================")
+
+total_chunks = len(chunks)
 
 for index, chunk_file in enumerate(chunks, start=1):
 
@@ -284,26 +338,30 @@ for index, chunk_file in enumerate(chunks, start=1):
 
     remote_chunk = (
         REMOTE_TEMP
-        + "\\"
+        + BS
         + chunk_name
     )
 
     with open(chunk_file, "rb") as f:
         chunk_data = f.read()
 
-    encoded = base64.b64encode(chunk_data).decode("ascii")
+    encoded = base64.b64encode(
+        chunk_data
+    ).decode("ascii")
+
 
     print(
-        "Uploading chunk "
+        "["
         + str(index)
         + "/"
-        + str(len(chunks))
-        + ": "
+        + str(total_chunks)
+        + "] Uploading "
         + chunk_name
-        + " ("
+        + " - "
         + str(len(chunk_data))
-        + " bytes)"
+        + " bytes"
     )
+
 
     upload_script = f"""
 $ErrorActionPreference = "Stop"
@@ -320,49 +378,71 @@ $bytes = [Convert]::FromBase64String($data)
 Write-Output "CHUNK_UPLOADED"
 """
 
+
     try:
 
-        result = session.run_ps(upload_script)
+        result = session.run_ps(
+            upload_script
+        )
 
-        stdout = result.std_out.decode(errors="ignore")
-        stderr = result.std_err.decode(errors="ignore")
+        stdout = result.std_out.decode(
+            errors="ignore"
+        )
+
+        stderr = result.std_err.decode(
+            errors="ignore"
+        )
+
 
         if result.status_code != 0:
 
+            print("")
             print("ERROR uploading chunk:")
             print(chunk_name)
 
+            print("")
             print("STDOUT:")
             print(stdout)
 
+            print("")
             print("STDERR:")
             print(stderr)
 
             sys.exit(1)
 
+
         if "CHUNK_UPLOADED" not in stdout:
 
-            print("ERROR: Upload confirmation not received for:")
-            print(chunk_name)
+            print("")
+            print("ERROR: Upload confirmation not received")
+            print("Chunk:", chunk_name)
 
             print(stdout)
             print(stderr)
 
             sys.exit(1)
 
+
     except Exception as e:
 
+        print("")
         print("ERROR uploading chunk:")
         print(chunk_name)
+
         print(str(e))
 
         sys.exit(1)
 
 
 print("")
-print("All chunks uploaded successfully.")
+print("ALL CHUNKS UPLOADED SUCCESSFULLY")
 
 
+# ============================================================
+# REASSEMBLE ZIP
+# ============================================================
+
+print("")
 print("==========================================")
 print("REASSEMBLE ZIP ON IIS SERVER")
 print("==========================================")
@@ -404,35 +484,48 @@ try {{
             0,
             $bytes.Length
         )
-
     }}
 
 }}
 finally {{
 
     $stream.Close()
-
 }}
 
 Write-Output "ZIP_REASSEMBLED"
 
-Write-Output "ZIP size:"
+Write-Output "Remote ZIP size:"
 
 (Get-Item $remoteZip).Length
 """
 
-result = session.run_ps(reassemble_script)
+result = session.run_ps(
+    reassemble_script
+)
 
-print(result.std_out.decode(errors="ignore"))
+stdout = result.std_out.decode(
+    errors="ignore"
+)
+
+stderr = result.std_err.decode(
+    errors="ignore"
+)
+
+print(stdout)
 
 if result.status_code != 0:
 
     print("ERROR: ZIP reassembly failed")
-    print(result.std_err.decode(errors="ignore"))
+    print(stderr)
 
     sys.exit(1)
 
 
+# ============================================================
+# VALIDATE REMOTE ZIP
+# ============================================================
+
+print("")
 print("==========================================")
 print("VALIDATE REMOTE ZIP")
 print("==========================================")
@@ -484,18 +577,33 @@ finally {{
 }}
 """
 
-result = session.run_ps(validate_script)
+result = session.run_ps(
+    validate_script
+)
 
-print(result.std_out.decode(errors="ignore"))
+stdout = result.std_out.decode(
+    errors="ignore"
+)
+
+stderr = result.std_err.decode(
+    errors="ignore"
+)
+
+print(stdout)
 
 if result.status_code != 0:
 
     print("ERROR: Remote ZIP validation failed")
-    print(result.std_err.decode(errors="ignore"))
+    print(stderr)
 
     sys.exit(1)
 
 
+# ============================================================
+# DEPLOY TO IIS
+# ============================================================
+
+print("")
 print("==========================================")
 print("DEPLOY ZIP TO IIS")
 print("==========================================")
@@ -506,7 +614,7 @@ $ErrorActionPreference = "Stop"
 $zip = "{REMOTE_ZIP}"
 $target = "{IIS_TARGET}"
 
-Write-Output "Target:"
+Write-Output "Deployment target:"
 Write-Output $target
 
 if (!(Test-Path $target)) {{
@@ -529,18 +637,33 @@ Expand-Archive `
 Write-Output "DEPLOYMENT_EXTRACT_SUCCESS"
 """
 
-result = session.run_ps(deploy_script)
+result = session.run_ps(
+    deploy_script
+)
 
-print(result.std_out.decode(errors="ignore"))
+stdout = result.std_out.decode(
+    errors="ignore"
+)
+
+stderr = result.std_err.decode(
+    errors="ignore"
+)
+
+print(stdout)
 
 if result.status_code != 0:
 
     print("ERROR: IIS deployment failed")
-    print(result.std_err.decode(errors="ignore"))
+    print(stderr)
 
     sys.exit(1)
 
 
+# ============================================================
+# REMOTE CLEANUP
+# ============================================================
+
+print("")
 print("==========================================")
 print("REMOTE CLEANUP")
 print("==========================================")
@@ -557,16 +680,28 @@ if (Test-Path $remoteTemp) {{
 Write-Output "REMOTE_CLEANUP_SUCCESS"
 """
 
-result = session.run_ps(cleanup_script)
+result = session.run_ps(
+    cleanup_script
+)
 
-print(result.std_out.decode(errors="ignore"))
+print(
+    result.std_out.decode(
+        errors="ignore"
+    )
+)
 
+
+# ============================================================
+# COMPLETE
+# ============================================================
 
 print("")
 print("==========================================")
-print("IIS DEPLOYMENT COMPLETED")
+print("IIS DEPLOYMENT COMPLETED SUCCESSFULLY")
 print("==========================================")
-print("Deployment target:", IIS_TARGET)
+
+print("IIS Server :", IIS_SERVER)
+print("Target     :", IIS_TARGET)
 
 PYTHON
                     '''
@@ -598,15 +733,19 @@ import os
 import sys
 import winrm
 
+
 IIS_SERVER = os.environ["IIS_SERVER"]
 IIS_TARGET = os.environ["IIS_TARGET"]
 
 WINRM_USER = os.environ["WINRM_USER"]
 WINRM_PASSWORD = os.environ["WINRM_PASSWORD"]
 
+
+print("")
 print("==========================================")
-print("CONNECT TO IIS")
+print("CONNECT TO IIS FOR VERIFICATION")
 print("==========================================")
+
 
 try:
 
@@ -624,9 +763,11 @@ except Exception as e:
     sys.exit(1)
 
 
+print("")
 print("==========================================")
 print("VERIFY DEPLOYED FILES")
 print("==========================================")
+
 
 verify_script = f"""
 $ErrorActionPreference = "Stop"
@@ -666,7 +807,7 @@ Write-Output "Deployment file count:"
     Measure-Object).Count
 
 Write-Output ""
-Write-Output "Deployment directory listing:"
+Write-Output "Top-level deployment files:"
 
 Get-ChildItem `
     -Path $target |
@@ -676,16 +817,33 @@ Write-Output ""
 Write-Output "DEPLOYMENT_VERIFICATION_SUCCESS"
 """
 
-result = session.run_ps(verify_script)
 
-print(result.std_out.decode(errors="ignore"))
+result = session.run_ps(
+    verify_script
+)
+
+stdout = result.std_out.decode(
+    errors="ignore"
+)
+
+stderr = result.std_err.decode(
+    errors="ignore"
+)
+
+print(stdout)
 
 if result.status_code != 0:
 
     print("ERROR: Deployment verification failed")
-    print(result.std_err.decode(errors="ignore"))
+    print(stderr)
 
     sys.exit(1)
+
+
+print("")
+print("==========================================")
+print("DEPLOYMENT VERIFICATION SUCCESS")
+print("==========================================")
 
 PYTHON
                     '''
@@ -708,6 +866,7 @@ PYTHON
             echo 'Target: C:\\inetpub\\wwwroot\\PuffinMT_Demo\\PuffinUI'
         }
 
+
         failure {
 
             echo '=========================================='
@@ -716,6 +875,7 @@ PYTHON
 
             echo 'Please check the Jenkins console log for the failed stage.'
         }
+
 
         always {
 
