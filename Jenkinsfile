@@ -19,9 +19,6 @@ environment {
 
 stages {
 
-    // ============================================================
-    // 1. CHECKOUT FROM GITHUB
-    // ============================================================
     stage('Checkout') {
         steps {
             echo '=========================================='
@@ -33,26 +30,23 @@ stages {
             sh '''
                 set -e
 
-                echo "Workspace : $WORKSPACE"
+                echo "Workspace: $WORKSPACE"
 
                 echo ""
-                echo "Current branch:"
+                echo "Branch:"
                 git branch --show-current || true
 
                 echo ""
-                echo "Current commit:"
+                echo "Commit:"
                 git rev-parse --short HEAD
 
                 echo ""
-                echo "Git remote:"
+                echo "Remote:"
                 git remote -v
             '''
         }
     }
 
-    // ============================================================
-    // 2. VERIFY UI SOURCE
-    // ============================================================
     stage('Verify UI Source') {
         steps {
             echo '=========================================='
@@ -62,36 +56,29 @@ stages {
             sh '''
                 set -e
 
-                echo "UI Source:"
-                echo "$UI_SOURCE"
+                echo "UI Source: $UI_SOURCE"
 
                 if [ ! -d "$UI_SOURCE" ]; then
                     echo "ERROR: UI source directory not found."
                     exit 1
                 fi
 
-                echo ""
-                echo "Checking package.json..."
-
                 if [ ! -f "$UI_SOURCE/package.json" ]; then
                     echo "ERROR: package.json not found."
                     exit 1
                 fi
-
-                echo "package.json found."
-
-                echo ""
-                echo "Checking web.config..."
 
                 if [ ! -f "$UI_SOURCE/web.config" ]; then
                     echo "ERROR: web.config not found."
                     exit 1
                 fi
 
-                echo "web.config found."
+                echo ""
+                echo "package.json: FOUND"
+                echo "web.config: FOUND"
 
                 echo ""
-                echo "Top-level UI files:"
+                echo "Top-level files:"
                 find "$UI_SOURCE" -maxdepth 1 -type f -printf '%f\\n' | sort
 
                 echo ""
@@ -100,9 +87,6 @@ stages {
         }
     }
 
-    // ============================================================
-    // 3. CREATE DEPLOYMENT ZIP
-    // ============================================================
     stage('Create Deployment ZIP') {
         steps {
             echo '=========================================='
@@ -115,8 +99,6 @@ stages {
                 rm -f "$DEPLOY_ZIP"
 
                 echo "Creating deployment ZIP..."
-                echo "Source: $UI_SOURCE"
-                echo "ZIP   : $DEPLOY_ZIP"
 
                 cd "$UI_SOURCE"
 
@@ -127,32 +109,17 @@ stages {
                 cd "$WORKSPACE"
 
                 echo ""
-                echo "ZIP created successfully."
-
+                echo "ZIP created:"
                 ls -lh "$DEPLOY_ZIP"
-
-                echo ""
-                echo "Checking ZIP contents..."
-
-                unzip -l "$DEPLOY_ZIP" | head -50
 
                 echo ""
                 echo "Checking required files..."
 
-                if ! unzip -l "$DEPLOY_ZIP" | grep -q "package.json"; then
-                    echo "ERROR: package.json missing from ZIP."
-                    exit 1
-                fi
+                unzip -l "$DEPLOY_ZIP" | grep -q "package.json"
+                unzip -l "$DEPLOY_ZIP" | grep -q "web.config"
 
-                if ! unzip -l "$DEPLOY_ZIP" | grep -q "web.config"; then
-                    echo "ERROR: web.config missing from ZIP."
-                    exit 1
-                fi
-
-                echo ""
-                echo "Required files found:"
-                echo "- package.json"
-                echo "- web.config"
+                echo "package.json: FOUND"
+                echo "web.config: FOUND"
 
                 echo ""
                 echo "DEPLOYMENT ZIP CREATION SUCCESS"
@@ -160,9 +127,6 @@ stages {
         }
     }
 
-    // ============================================================
-    // 4. TEST SSH CONNECTION
-    // ============================================================
     stage('Test SSH') {
         steps {
             echo '=========================================='
@@ -179,23 +143,19 @@ stages {
                 sh '''
                     set -e
 
-                    echo "Testing SSH connection..."
-                    echo "Server : $IIS_SERVER"
-                    echo "User   : $SSH_USER"
-
                     export SSHPASS="$SSH_PASSWORD"
 
+                    echo "Testing SSH connection..."
+                    echo "Server: $IIS_SERVER"
+                    echo "User: $SSH_USER"
+
                     if ! command -v sshpass >/dev/null 2>&1; then
-                        echo "ERROR: sshpass is not installed on Jenkins."
-                        echo ""
-                        echo "Install it using:"
+                        echo "ERROR: sshpass is not installed."
+                        echo "Install using:"
                         echo "sudo apt-get update"
                         echo "sudo apt-get install -y sshpass"
                         exit 1
                     fi
-
-                    echo ""
-                    echo "sshpass found."
 
                     SSH_RESULT=$(sshpass -e ssh \
                         -o StrictHostKeyChecking=no \
@@ -205,7 +165,7 @@ stages {
                         "whoami")
 
                     echo ""
-                    echo "Remote Windows user:"
+                    echo "Remote user:"
                     echo "$SSH_RESULT"
 
                     echo ""
@@ -215,9 +175,6 @@ stages {
         }
     }
 
-    // ============================================================
-    // 5. PREPARE REMOTE DIRECTORY
-    // ============================================================
     stage('Prepare Remote Directory') {
         steps {
             echo '=========================================='
@@ -236,8 +193,6 @@ stages {
 
                     export SSHPASS="$SSH_PASSWORD"
 
-                    echo "Creating remote deployment directory..."
-
                     sshpass -e ssh \
                         -o StrictHostKeyChecking=no \
                         -o UserKnownHostsFile=/dev/null \
@@ -251,9 +206,6 @@ stages {
         }
     }
 
-    // ============================================================
-    // 6. UPLOAD ZIP VIA SCP
-    // ============================================================
     stage('Upload ZIP via SCP') {
         steps {
             echo '=========================================='
@@ -272,15 +224,12 @@ stages {
 
                     export SSHPASS="$SSH_PASSWORD"
 
-                    echo "Uploading deployment ZIP..."
-                    echo "Local ZIP : $WORKSPACE/$DEPLOY_ZIP"
-                    echo "Server    : $IIS_SERVER"
-
                     if [ ! -f "$DEPLOY_ZIP" ]; then
                         echo "ERROR: Deployment ZIP not found."
                         exit 1
                     fi
 
+                    echo "Uploading:"
                     ls -lh "$DEPLOY_ZIP"
 
                     sshpass -e scp \
@@ -305,9 +254,6 @@ stages {
         }
     }
 
-    // ============================================================
-    // 7. DEPLOY TO IIS
-    // ============================================================
     stage('Deploy to IIS') {
         steps {
             echo '=========================================='
@@ -344,18 +290,10 @@ Write-Host "=========================================="
 Write-Host "PUFFIN UI IIS DEPLOYMENT"
 Write-Host "=========================================="
 
-Write-Host "ZIP      : $zip"
-Write-Host "TARGET   : $target"
-Write-Host "BACKUP   : $backup"
+Write-Host "ZIP    : $zip"
+Write-Host "TARGET : $target"
+Write-Host "BACKUP : $backup"
 Write-Host ""
-
-# --------------------------------------------------
-
-# Verify ZIP
-
-# --------------------------------------------------
-
-Write-Host "Checking deployment ZIP..."
 
 if (!(Test-Path -LiteralPath $zip)) {
 throw "Deployment ZIP not found: $zip"
@@ -364,35 +302,17 @@ throw "Deployment ZIP not found: $zip"
 $zipInfo = Get-Item -LiteralPath $zip
 
 Write-Host "ZIP found."
-Write-Host "ZIP size : $($zipInfo.Length) bytes"
+Write-Host "ZIP size: $($zipInfo.Length) bytes"
 Write-Host ""
 
-# --------------------------------------------------
-
-# Create required directories
-
-# --------------------------------------------------
-
-Write-Host "Checking target directory..."
-
-if (!(Test-Path -LiteralPath $target)) {
-Write-Host "Target directory does not exist. Creating it..."
-New-Item -ItemType Directory -Path $target -Force | Out-Null
-}
-
 if (!(Test-Path -LiteralPath $backupRoot)) {
-Write-Host "Creating backup root..."
 New-Item -ItemType Directory -Path $backupRoot -Force | Out-Null
 }
 
-Write-Host "Required directories ready."
-Write-Host ""
-
-# --------------------------------------------------
-
-# Backup existing deployment
-
-# --------------------------------------------------
+if (!(Test-Path -LiteralPath $target)) {
+Write-Host "Target directory does not exist. Creating..."
+New-Item -ItemType Directory -Path $target -Force | Out-Null
+}
 
 Write-Host "Checking existing deployment..."
 
@@ -402,8 +322,7 @@ if ($existingFiles.Count -gt 0) {
 
 ```
 Write-Host "Existing deployment found."
-Write-Host "Creating backup:"
-Write-Host "$backup"
+Write-Host "Creating backup..."
 
 New-Item -ItemType Directory -Path $backup -Force | Out-Null
 
@@ -423,12 +342,6 @@ Write-Host "No existing files found."
 
 Write-Host ""
 
-# --------------------------------------------------
-
-# Remove existing deployment
-
-# --------------------------------------------------
-
 Write-Host "Cleaning existing IIS deployment..."
 
 Get-ChildItem `    -LiteralPath $target`
@@ -440,12 +353,6 @@ Get-ChildItem `    -LiteralPath $target`
 Write-Host "Existing deployment cleaned."
 Write-Host ""
 
-# --------------------------------------------------
-
-# Extract new deployment
-
-# --------------------------------------------------
-
 Write-Host "Extracting deployment ZIP..."
 
 Expand-Archive `    -LiteralPath $zip`
@@ -454,12 +361,6 @@ Expand-Archive `    -LiteralPath $zip`
 
 Write-Host "ZIP extraction completed."
 Write-Host ""
-
-# --------------------------------------------------
-
-# Verify deployment
-
-# --------------------------------------------------
 
 Write-Host "Verifying deployment..."
 
@@ -485,14 +386,7 @@ Write-Host "web.config   : FOUND"
 Write-Host "File count   : $fileCount"
 Write-Host ""
 
-# --------------------------------------------------
-
-# Show deployment contents
-
-# --------------------------------------------------
-
 Write-Host "Top-level deployment contents:"
-Write-Host ""
 
 Get-ChildItem -LiteralPath $target -Force |
 Select-Object Mode, Length, Name |
@@ -500,13 +394,7 @@ Format-Table -AutoSize
 
 Write-Host ""
 
-# --------------------------------------------------
-
-# Cleanup remote ZIP
-
-# --------------------------------------------------
-
-Write-Host "Cleaning temporary deployment files..."
+Write-Host "Cleaning remote temporary files..."
 
 $remoteTemp = Split-Path -Parent $zip
 
@@ -518,12 +406,6 @@ Remove-Item `        -LiteralPath $remoteTemp`
 
 Write-Host "Remote temporary files cleaned."
 Write-Host ""
-
-# --------------------------------------------------
-
-# Deployment success
-
-# --------------------------------------------------
 
 Write-Host "=========================================="
 Write-Host "PUFFIN UI DEPLOYMENT SUCCESS"
@@ -558,9 +440,7 @@ POWERSHELL
                         "powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\\Windows\\Temp\\deploy_puffin_ui.ps1"
 
                     echo ""
-                    echo "=========================================="
-                    echo "IIS DEPLOYMENT COMMAND COMPLETED"
-                    echo "=========================================="
+                    echo "IIS deployment command completed."
 
                     rm -f deploy_puffin_ui.ps1
                 '''
@@ -568,9 +448,6 @@ POWERSHELL
         }
     }
 
-    // ============================================================
-    // 8. VERIFY DEPLOYMENT
-    // ============================================================
     stage('Verify Deployment') {
         steps {
             echo '=========================================='
@@ -589,13 +466,13 @@ POWERSHELL
 
                     export SSHPASS="$SSH_PASSWORD"
 
-                    echo "Checking deployed files on IIS..."
+                    echo "Checking deployed files..."
 
                     sshpass -e ssh \
                         -o StrictHostKeyChecking=no \
                         -o UserKnownHostsFile=/dev/null \
                         "$SSH_USER@$IIS_SERVER" \
-                        "powershell.exe -NoProfile -Command \"\\$target='C:\\\\inetpub\\\\wwwroot\\\\PuffinMT_Demo\\\\PuffinUI'; if (!(Test-Path -LiteralPath \\$target)) { throw 'IIS target directory does not exist' }; if (!(Test-Path -LiteralPath (Join-Path \\$target 'package.json'))) { throw 'package.json missing' }; if (!(Test-Path -LiteralPath (Join-Path \\$target 'web.config'))) { throw 'web.config missing' }; \\$count=@(Get-ChildItem -LiteralPath \\$target -Recurse -File).Count; Write-Host 'Target:' \\$target; Write-Host 'File count:' \\$count; Write-Host 'package.json: FOUND'; Write-Host 'web.config: FOUND'; Write-Host ''; Write-Host 'Deployment verification successful.'\""
+                        "powershell.exe -NoProfile -Command \"\\$target='C:\\\\inetpub\\\\wwwroot\\\\PuffinMT_Demo\\\\PuffinUI'; if (!(Test-Path -LiteralPath \\$target)) { throw 'IIS target directory does not exist' }; if (!(Test-Path -LiteralPath (Join-Path \\$target 'package.json'))) { throw 'package.json missing' }; if (!(Test-Path -LiteralPath (Join-Path \\$target 'web.config'))) { throw 'web.config missing' }; \\$count=@(Get-ChildItem -LiteralPath \\$target -Recurse -File).Count; Write-Host 'Target:' \\$target; Write-Host 'File count:' \\$count; Write-Host 'package.json: FOUND'; Write-Host 'web.config: FOUND'; Write-Host 'Deployment verification successful.'\""
 
                     echo ""
                     echo "=========================================="
@@ -607,16 +484,13 @@ POWERSHELL
     }
 }
 
-// ================================================================
-// POST ACTIONS
-// ================================================================
 post {
 
     success {
         echo '=========================================='
         echo 'PUFFIN UI DEPLOYMENT SUCCESSFUL'
         echo '=========================================='
-        echo 'GitHub → Jenkins → SCP → IIS deployment completed.'
+        echo 'GitHub -> Jenkins -> SCP -> IIS completed.'
         echo '=========================================='
     }
 
@@ -624,7 +498,7 @@ post {
         echo '=========================================='
         echo 'PUFFIN UI DEPLOYMENT FAILED'
         echo '=========================================='
-        echo 'Please check the Jenkins console log for the failed stage.'
+        echo 'Please check the Jenkins console log.'
         echo '=========================================='
     }
 
