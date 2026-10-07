@@ -171,7 +171,7 @@ except Exception as e:
 
 print("Preparing remote deployment directory...")
 
-prepare_script = f'''
+prepare_script = f"""
 $ErrorActionPreference = "Stop"
 
 $remoteTemp = "{remote_temp}"
@@ -185,7 +185,7 @@ if (Test-Path $remoteTemp) {{
 New-Item -ItemType Directory -Path $remoteTemp -Force | Out-Null
 
 Write-Output "REMOTE_TEMP_READY"
-'''
+"""
 
 result = session.run_ps(prepare_script)
 
@@ -225,7 +225,7 @@ for index, chunk_file in enumerate(chunk_files, start=1):
         + os.path.basename(chunk_file)
     )
 
-    script = f'''
+    script = f"""
 $ErrorActionPreference = "Stop"
 
 $data = "{encoded}"
@@ -238,7 +238,7 @@ $bytes = [Convert]::FromBase64String($data)
 )
 
 Write-Output "CHUNK_UPLOADED"
-'''
+"""
 
     result = session.run_ps(script)
 
@@ -256,13 +256,13 @@ print("All chunks uploaded successfully.")
 print("Reassembling ZIP on IIS server...")
 
 
-reassemble_script = f'''
+reassemble_script = f"""
 $ErrorActionPreference = "Stop"
 
 $remoteTemp = "{remote_temp}"
 $remoteZip = "{remote_zip}"
 
-$chunks = Get-ChildItem "$remoteTemp\\\\chunk_*" |
+$chunks = Get-ChildItem "$remoteTemp\\chunk_*" |
           Sort-Object Name
 
 if ($chunks.Count -eq 0) {{
@@ -302,7 +302,7 @@ Write-Output "ZIP_REASSEMBLED"
 
 Write-Output "ZIP_SIZE:"
 Write-Output ((Get-Item $remoteZip).Length)
-'''
+"""
 
 result = session.run_ps(reassemble_script)
 
@@ -317,7 +317,7 @@ print(result.std_out.decode(errors="ignore"))
 print("Validating ZIP...")
 
 
-validate_script = f'''
+validate_script = f"""
 $ErrorActionPreference = "Stop"
 
 Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -356,7 +356,7 @@ try {{
 finally {{
     $archive.Dispose()
 }}
-'''
+"""
 
 result = session.run_ps(validate_script)
 
@@ -371,7 +371,7 @@ print(result.std_out.decode(errors="ignore"))
 print("Deploying files to IIS...")
 
 
-deploy_script = f'''
+deploy_script = f"""
 $ErrorActionPreference = "Stop"
 
 $zip = "{remote_zip}"
@@ -390,7 +390,7 @@ Expand-Archive `
     -Force
 
 Write-Output "IIS_DEPLOYMENT_COMPLETED"
-'''
+"""
 
 result = session.run_ps(deploy_script)
 
@@ -405,7 +405,7 @@ print(result.std_out.decode(errors="ignore"))
 print("Cleaning remote temporary files...")
 
 
-cleanup_script = f'''
+cleanup_script = f"""
 $ErrorActionPreference = "SilentlyContinue"
 
 $remoteTemp = "{remote_temp}"
@@ -415,7 +415,7 @@ if (Test-Path $remoteTemp) {{
 }}
 
 Write-Output "REMOTE_CLEANUP_COMPLETED"
-'''
+"""
 
 result = session.run_ps(cleanup_script)
 
@@ -461,7 +461,7 @@ session = winrm.Session(
     transport="ntlm"
 )
 
-script = f'''
+script = f"""
 $ErrorActionPreference = "Stop"
 
 $target = "{target}"
@@ -497,7 +497,7 @@ if ($count -eq 0) {{
 }}
 
 Write-Output "DEPLOYMENT_VERIFICATION_SUCCESS"
-'''
+"""
 
 result = session.run_ps(script)
 
