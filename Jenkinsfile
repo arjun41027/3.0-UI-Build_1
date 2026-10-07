@@ -11,7 +11,7 @@ pipeline {
         IIS_TARGET = 'C:\\inetpub\\wwwroot\\PuffinMT_Demo\\PuffinUI'
         UI_SOURCE = 'Desktop/3.0 UI and API Docs/3.0 UI Build'
         DEPLOY_ZIP = 'PuffinUI_Deployment.zip'
-        CHUNK_SIZE = '500000'
+        CHUNK_SIZE = '25000'
     }
 
     stages {
@@ -68,8 +68,8 @@ pipeline {
 
                 sh '''
                     rm -f "$DEPLOY_ZIP"
-                    rm -rf deployment_chunks
-                    mkdir -p deployment_chunks
+                    rm -rf deployment_s
+                    mkdir -p deployment_s
 
                     cd "$UI_SOURCE"
 
@@ -90,19 +90,19 @@ pipeline {
             }
         }
 
-        stage('Split ZIP into Chunks') {
+        stage('Split ZIP into s') {
             steps {
                 echo '=========================================='
-                echo 'SPLIT ZIP INTO SMALL CHUNKS'
+                echo 'SPLIT ZIP INTO SMALL S'
                 echo '=========================================='
 
                 sh '''
-                    rm -rf deployment_chunks
-                    mkdir -p deployment_chunks
+                    rm -rf deployment_s
+                    mkdir -p deployment_s
 
-                    split -b "$CHUNK_SIZE" -d -a 5 \
+                    split -b "$_SIZE" -d -a 5 \
                         "$DEPLOY_ZIP" \
-                        "deployment_chunks/chunk_"
+                        "deployment_s/chunk_"
 
                     echo "Chunks created:"
                     ls -lh deployment_chunks
