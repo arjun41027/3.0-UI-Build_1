@@ -1,835 +1,539 @@
 pipeline {
-agent any
+    agent any
 
-```
-environment {
-    IIS_SERVER = '172.16.4.166'
-    IIS_TARGET = 'C:\\inetpub\\wwwroot\\PuffinMT_Demo\\PuffinUI'
-
-    UI_SOURCE = 'Desktop/3.0 UI and API Docs/3.0 UI Build'
-
-    DEPLOY_ZIP = 'PuffinUI_Deployment.zip'
-    CHUNK_SIZE = '500000'
-}
-
-options {
-    skipDefaultCheckout(true)
-    timestamps()
-}
-
-stages {
-
-    stage('Checkout') {
-        steps {
-            echo '=========================================='
-            echo 'Checking out latest UI build from GitHub'
-            echo '=========================================='
-
-            checkout scm
-
-            echo "Workspace: ${env.WORKSPACE}"
-            echo "UI Source: ${env.UI_SOURCE}"
-        }
+    options {
+        skipDefaultCheckout(true)
+        timestamps()
     }
 
-    stage('Verify UI Files') {
-        steps {
-            sh '''
-                set -e
-
-                echo "=========================================="
-                echo "Verifying UI source folder"
-                echo "=========================================="
-
-                if [ ! -d "$UI_SOURCE" ]; then
-                    echo "ERROR: UI source folder not found:"
-                    echo "$UI_SOURCE"
-                    exit 1
-                fi
-
-                echo ""
-                echo "UI source folder:"
-                echo "$UI_SOURCE"
-
-                echo ""
-                echo "Top-level UI contents:"
-                find "$UI_SOURCE" -maxdepth 2 -type f | sort | head -100
-
-                echo ""
-                echo "UI source verification successful."
-
-                echo ""
-                echo "Source size:"
-                du -sh "$UI_SOURCE"
-
-                echo "=========================================="
-            '''
-        }
+    environment {
+        IIS_SERVER = '172.16.4.166'
+        IIS_TARGET = 'C:\\inetpub\\wwwroot\\PuffinMT_Demo\\PuffinUI'
+        UI_SOURCE = 'Desktop/3.0 UI and API Docs/3.0 UI Build'
+        DEPLOY_ZIP = 'PuffinUI_Deployment.zip'
+        CHUNK_SIZE = '500000'
     }
 
-    stage('Create Deployment ZIP') {
-        steps {
-            sh '''
-                set -e
+    stages {
 
-                echo "=========================================="
-                echo "Creating deployment ZIP"
-                echo "=========================================="
+        stage('Checkout') {
+            steps {
+                echo '=========================================='
+                echo 'CHECKOUT SOURCE CODE'
+                echo '=========================================='
 
-                rm -f "$DEPLOY_ZIP"
-
-                cd "$UI_SOURCE"
-
-                echo "Packaging UI contents from:"
-                pwd
-
-                zip -r "$WORKSPACE/$DEPLOY_ZIP" . \
-                    -x "Jenkinsfile" \
-                    -x "iisnode/*"
-
-                cd "$WORKSPACE"
-
-                echo ""
-                echo "Deployment ZIP created:"
-                ls -lh "$DEPLOY_ZIP"
-
-                echo ""
-                echo "Checking ZIP root contents:"
-
-                unzip -l "$DEPLOY_ZIP" | head -80
-
-                echo ""
-                echo "Deployment ZIP creation successful."
-
-                echo "=========================================="
-            '''
-        }
-    }
-
-    stage('Split Deployment ZIP') {
-        steps {
-            sh '''
-                set -e
-
-                echo "=========================================="
-                echo "Splitting deployment ZIP"
-                echo "=========================================="
-
-                rm -rf deployment_chunks
-                mkdir -p deployment_chunks
-
-                split \
-                    -b "$CHUNK_SIZE" \
-                    -d \
-                    -a 5 \
-                    "$DEPLOY_ZIP" \
-                    "deployment_chunks/chunk_"
-
-                echo ""
-                echo "ZIP size:"
-                ls -lh "$DEPLOY_ZIP"
-
-                echo ""
-                echo "Number of chunks:"
-                find deployment_chunks -type f | wc -l
-
-                echo ""
-                echo "Chunk list:"
-                ls -lh deployment_chunks/
-
-                echo ""
-                echo "Chunking successful."
-
-                echo "=========================================="
-            '''
-        }
-    }
-
-    stage('Deploy UI to IIS') {
-        steps {
-
-            withCredentials([
-                usernamePassword(
-                    credentialsId: 'puffin-iis-winrm',
-                    usernameVariable: 'IIS_USER',
-                    passwordVariable: 'IIS_PASSWORD'
-                )
-            ]) {
+                checkout scm
 
                 sh '''
-```
+                    echo "Current directory:"
+                    pwd
 
-python3 - <<'PY'
+                    echo "Git branch:"
+                    git branch --show-current
+
+                    echo "Latest commit:"
+                    git log -1 --oneline
+                '''
+            }
+        }
+
+        stage('Verify UI Source') {
+            steps {
+                echo '=========================================='
+                echo 'VERIFY UI SOURCE'
+                echo '=========================================='
+
+                sh '''
+                    if [ ! -d "$UI_SOURCE" ]; then
+                        echo "ERROR: UI source directory not found:"
+                        echo "$UI_SOURCE"
+                        exit 1
+                    fi
+
+                    echo "UI source found:"
+                    ls -la "$UI_SOURCE"
+
+                    echo ""
+                    echo "UI files:"
+                    find "$UI_SOURCE" -maxdepth 2 -type f | head -100
+                '''
+            }
+        }
+
+        stage('Create Deployment ZIP') {
+            steps {
+                echo '=========================================='
+                echo 'CREATE DEPLOYMENT ZIP'
+                echo '=========================================='
+
+                sh '''
+                    rm -f "$DEPLOY_ZIP"
+                    rm -rf deployment_chunks
+                    mkdir -p deployment_chunks
+
+                    cd "$UI_SOURCE"
+
+                    zip -r "$WORKSPACE/$DEPLOY_ZIP" . \
+                        -x "Jenkinsfile" \
+                        -x "iisnode/*"
+
+                    cd "$WORKSPACE"
+
+                    echo ""
+                    echo "ZIP created successfully:"
+                    ls -lh "$DEPLOY_ZIP"
+
+                    echo ""
+                    echo "ZIP content:"
+                    unzip -l "$DEPLOY_ZIP" | head -100
+                '''
+            }
+        }
+
+        stage('Split ZIP into Chunks') {
+            steps {
+                echo '=========================================='
+                echo 'SPLIT ZIP INTO SMALL CHUNKS'
+                echo '=========================================='
+
+                sh '''
+                    rm -rf deployment_chunks
+                    mkdir -p deployment_chunks
+
+                    split -b "$CHUNK_SIZE" -d -a 5 \
+                        "$DEPLOY_ZIP" \
+                        "deployment_chunks/chunk_"
+
+                    echo "Chunks created:"
+                    ls -lh deployment_chunks
+
+                    echo ""
+                    echo "Number of chunks:"
+                    find deployment_chunks -type f | wc -l
+                '''
+            }
+        }
+
+        stage('Deploy to IIS') {
+            steps {
+                echo '=========================================='
+                echo 'DEPLOY TO IIS SERVER'
+                echo '=========================================='
+
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'puffin-iis-winrm',
+                        usernameVariable: 'WINRM_USER',
+                        passwordVariable: 'WINRM_PASSWORD'
+                    )
+                ]) {
+
+                    sh '''
+                        python3 - <<'PYTHON'
 import os
 import base64
 import winrm
+import glob
+import sys
 
 server = os.environ["IIS_SERVER"]
 target = os.environ["IIS_TARGET"]
-workspace = os.environ["WORKSPACE"]
+username = os.environ["WINRM_USER"]
+password = os.environ["WINRM_PASSWORD"]
 
-username = os.environ["IIS_USER"]
-password = os.environ["IIS_PASSWORD"]
+remote_temp = r"C:\\Windows\\Temp\\PuffinUI_Deployment"
+remote_zip = remote_temp + r"\\PuffinUI_Deployment.zip"
 
-chunks_dir = os.path.join(
-workspace,
-"deployment_chunks"
-)
+print("Connecting to IIS server:", server)
 
-remote_temp = r"C:\Windows\Temp\PuffinUI_Deployment"
-remote_zip = remote_temp + r"\PuffinUI_Deployment.zip"
+try:
+    session = winrm.Session(
+        f"http://{server}:5985/wsman",
+        auth=(username, password),
+        transport="ntlm"
+    )
 
-print("==========================================")
-print("Puffin 3.0 UI Deployment")
-print("==========================================")
-print("Server      :", server)
-print("Target      :", target)
-print("Chunks      :", chunks_dir)
-print("Remote Temp :", remote_temp)
-print("Remote ZIP  :", remote_zip)
-print("==========================================")
+    result = session.run_ps(
+        'Write-Output "WINRM_CONNECTION_SUCCESS"'
+    )
 
-print("")
-print("Connecting to IIS server...")
+    if result.status_code != 0:
+        print(result.std_err.decode(errors="ignore"))
+        sys.exit(1)
 
-session = winrm.Session(
-f"http://{server}:5985/wsman",
-auth=(username, password),
-transport="ntlm"
-)
+    print(result.std_out.decode(errors="ignore"))
 
-result = session.run_cmd(
-"cmd",
-["/c", "echo WINRM_CONNECTION_SUCCESS"]
-)
+except Exception as e:
+    print("ERROR: WinRM connection failed")
+    print(str(e))
+    sys.exit(1)
 
-if result.status_code != 0:
-raise Exception(
-"WinRM connection failed: "
-+ result.std_err.decode(errors="ignore")
-)
 
-print(
-result.std_out.decode(
-errors="ignore"
-)
-)
+print("Preparing remote deployment directory...")
 
-print("")
-print("Preparing remote temporary directory...")
+prepare_script = f'''
+$ErrorActionPreference = "Stop"
 
-ps_prepare = f"""
-$remoteTemp = '{remote_temp}'
-$remoteZip = '{remote_zip}'
+$remoteTemp = "{remote_temp}"
+$remoteZip = "{remote_zip}"
+$target = "{target}"
 
-if (Test-Path -LiteralPath $remoteTemp) {{
-Remove-Item -LiteralPath $remoteTemp -Recurse -Force
+if (Test-Path $remoteTemp) {{
+    Remove-Item $remoteTemp -Recurse -Force
 }}
 
-New-Item `    -ItemType Directory`
--Path $remoteTemp `
--Force | Out-Null
+New-Item -ItemType Directory -Path $remoteTemp -Force | Out-Null
 
-Write-Output 'REMOTE_TEMP_READY'
-"""
+Write-Output "REMOTE_TEMP_READY"
+'''
 
-result = session.run_ps(ps_prepare)
+result = session.run_ps(prepare_script)
 
 if result.status_code != 0:
-raise Exception(
-"Failed to prepare remote temporary directory: "
-+ result.std_err.decode(errors="ignore")
-)
+    print(result.std_err.decode(errors="ignore"))
+    sys.exit(1)
 
-print(
-result.std_out.decode(
-errors="ignore"
-)
-)
+print(result.std_out.decode(errors="ignore"))
+
 
 chunk_files = sorted(
-[
-os.path.join(chunks_dir, name)
-for name in os.listdir(chunks_dir)
-if name.startswith("chunk_")
-]
+    glob.glob("deployment_chunks/chunk_*")
 )
 
 if not chunk_files:
-raise Exception(
-"No deployment chunks found."
-)
+    print("ERROR: No deployment chunks found")
+    sys.exit(1)
 
-print("")
 print("Total chunks:", len(chunk_files))
 
-print("")
-print("==========================================")
-print("Uploading deployment chunks")
-print("==========================================")
 
 for index, chunk_file in enumerate(chunk_files, start=1):
 
-```
-chunk_name = os.path.basename(chunk_file)
-
-print(
-    f"Uploading chunk {index}/{len(chunk_files)}: {chunk_name}"
-)
-
-with open(chunk_file, "rb") as f:
-    chunk_data = f.read()
-
-encoded = base64.b64encode(
-    chunk_data
-).decode("ascii")
-
-remote_chunk = (
-    remote_temp
-    + "\\"
-    + chunk_name
-)
-
-safe_remote_chunk = remote_chunk.replace(
-    "'",
-    "''"
-)
-
-ps_upload = (
-    "$data=[Convert]::FromBase64String('"
-    + encoded
-    + "');"
-    "[IO.File]::WriteAllBytes('"
-    + safe_remote_chunk
-    + "', $data)"
-)
-
-result = session.run_ps(
-    ps_upload
-)
-
-if result.status_code != 0:
-
     print(
-        result.std_err.decode(
-            errors="ignore"
-        )
+        f"Uploading chunk {index}/{len(chunk_files)}: "
+        f"{os.path.basename(chunk_file)}"
     )
 
-    raise Exception(
-        f"Failed to upload chunk {chunk_name}"
+    with open(chunk_file, "rb") as f:
+        data = f.read()
+
+    encoded = base64.b64encode(data).decode("ascii")
+
+    remote_chunk = (
+        remote_temp
+        + "\\\\"
+        + os.path.basename(chunk_file)
     )
 
-print(
-    f"Chunk {index}/{len(chunk_files)} uploaded successfully "
-    f"({len(chunk_data) / 1024:.1f} KB)"
+    script = f'''
+$ErrorActionPreference = "Stop"
+
+$data = "{encoded}"
+
+$bytes = [Convert]::FromBase64String($data)
+
+[IO.File]::WriteAllBytes(
+    "{remote_chunk}",
+    $bytes
 )
-```
 
-print("")
+Write-Output "CHUNK_UPLOADED"
+'''
+
+    result = session.run_ps(script)
+
+    if result.status_code != 0:
+        print("ERROR uploading chunk:")
+        print(result.std_err.decode(errors="ignore"))
+        sys.exit(1)
+
+    print(result.std_out.decode(errors="ignore"))
+
+
 print("All chunks uploaded successfully.")
 
-print("")
-print("==========================================")
-print("Reassembling deployment ZIP")
-print("==========================================")
 
-ps_combine = f"""
-$remoteTemp = '{remote_temp}'
-$remoteZip = '{remote_zip}'
+print("Reassembling ZIP on IIS server...")
 
-$chunks = Get-ChildItem `    -LiteralPath $remoteTemp`
--Filter 'chunk_*' |
-Sort-Object Name
+
+reassemble_script = f'''
+$ErrorActionPreference = "Stop"
+
+$remoteTemp = "{remote_temp}"
+$remoteZip = "{remote_zip}"
+
+$chunks = Get-ChildItem "$remoteTemp\\\\chunk_*" |
+          Sort-Object Name
 
 if ($chunks.Count -eq 0) {{
-Write-Error 'NO_CHUNKS_FOUND'
-exit 1
+    throw "No chunks found on remote server."
 }}
 
-if (Test-Path -LiteralPath $remoteZip) {{
-Remove-Item -LiteralPath $remoteZip -Force
+if (Test-Path $remoteZip) {{
+    Remove-Item $remoteZip -Force
 }}
 
-$stream = [System.IO.File]::Open(
-$remoteZip,
-[System.IO.FileMode]::Create
+$stream = [IO.File]::Open(
+    $remoteZip,
+    [IO.FileMode]::Create
 )
 
 try {{
 
-```
-foreach ($chunk in $chunks) {{
+    foreach ($chunk in $chunks) {{
 
-    Write-Output ("Combining " + $chunk.Name)
+        $bytes = [IO.File]::ReadAllBytes(
+            $chunk.FullName
+        )
 
-    $bytes = [System.IO.File]::ReadAllBytes(
-        $chunk.FullName
-    )
-
-    $stream.Write(
-        $bytes,
-        0,
-        $bytes.Length
-    )
-}
-```
+        $stream.Write(
+            $bytes,
+            0,
+            $bytes.Length
+        )
+    }}
 
 }}
 finally {{
-
-```
-$stream.Close()
-```
-
+    $stream.Close()
 }}
 
-Write-Output 'ZIP_REASSEMBLED'
-Write-Output ("REMOTE_ZIP_SIZE=" + (Get-Item $remoteZip).Length)
-"""
+Write-Output "ZIP_REASSEMBLED"
 
-result = session.run_ps(
-ps_combine
-)
+Write-Output "ZIP_SIZE:"
+Write-Output ((Get-Item $remoteZip).Length)
+'''
+
+result = session.run_ps(reassemble_script)
 
 if result.status_code != 0:
+    print("ERROR reassembling ZIP:")
+    print(result.std_err.decode(errors="ignore"))
+    sys.exit(1)
 
-```
-print(
-    result.std_err.decode(
-        errors="ignore"
-    )
-)
+print(result.std_out.decode(errors="ignore"))
 
-raise Exception(
-    "Failed to reassemble deployment ZIP."
-)
-```
 
-print(
-result.std_out.decode(
-errors="ignore"
-)
-)
+print("Validating ZIP...")
 
-print("")
-print("==========================================")
-print("Validating remote ZIP")
-print("==========================================")
 
-ps_zip_test = f"""
-$zip = '{remote_zip}'
-
-if (-not (Test-Path -LiteralPath $zip)) {{
-Write-Error 'REMOTE_ZIP_NOT_FOUND'
-exit 1
-}}
+validate_script = f'''
+$ErrorActionPreference = "Stop"
 
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 
+$zip = "{remote_zip}"
+
+if (!(Test-Path $zip)) {{
+    throw "Deployment ZIP does not exist."
+}}
+
+$archive = [System.IO.Compression.ZipFile]::OpenRead($zip)
+
 try {{
+    Write-Output "ZIP_VALID"
 
-```
-$archive = [System.IO.Compression.ZipFile]::OpenRead(
-    $zip
-)
+    Write-Output "ZIP_ENTRIES:"
+    Write-Output $archive.Entries.Count
 
-Write-Output (
-    "ZIP_ENTRIES=" + $archive.Entries.Count
-)
+    $package = $archive.Entries |
+        Where-Object {{ $_.FullName -eq "package.json" }}
 
-$archive.Dispose()
+    $webconfig = $archive.Entries |
+        Where-Object {{ $_.FullName -eq "web.config" }}
 
-Write-Output 'REMOTE_ZIP_VALID'
-```
+    if (!$package) {{
+        throw "package.json not found in ZIP root."
+    }}
 
+    if (!$webconfig) {{
+        throw "web.config not found in ZIP root."
+    }}
+
+    Write-Output "PACKAGE_JSON_FOUND"
+    Write-Output "WEB_CONFIG_FOUND"
 }}
-catch {{
-
-```
-Write-Error (
-    "INVALID_ZIP: " + $_.Exception.Message
-)
-
-exit 1
-```
-
+finally {{
+    $archive.Dispose()
 }}
-"""
-
-result = session.run_ps(
-ps_zip_test
-)
-
-if result.status_code != 0:
-
-```
-print(
-    result.std_err.decode(
-        errors="ignore"
-    )
-)
-
-raise Exception(
-    "Remote deployment ZIP is invalid."
-)
-```
-
-print(
-result.std_out.decode(
-errors="ignore"
-)
-)
-
-print("")
-print("Checking IIS target folder...")
-
-ps_target = f"""
-$target = '{target}'
-
-if (-not (Test-Path -LiteralPath $target)) {{
-
-```
-New-Item `
-    -ItemType Directory `
-    -Path $target `
-    -Force | Out-Null
-
-Write-Output 'TARGET_CREATED'
-```
-
-}}
-else {{
-
-```
-Write-Output 'TARGET_EXISTS'
-```
-
-}}
-"""
-
-result = session.run_ps(ps_target)
-
-if result.status_code != 0:
-
-```
-raise Exception(
-    "Unable to create/access IIS target folder: "
-    + result.std_err.decode(
-        errors="ignore"
-    )
-)
-```
-
-print(
-result.std_out.decode(
-errors="ignore"
-)
-)
-
-print("")
-print("==========================================")
-print("Extracting UI files to IIS")
-print("==========================================")
-
-ps_extract = f"""
-$zip = '{remote_zip}'
-$target = '{target}'
-
-if (-not (Test-Path -LiteralPath $target)) {{
-
-```
-New-Item `
-    -ItemType Directory `
-    -Path $target `
-    -Force | Out-Null
-```
-
-}}
-
-Expand-Archive `    -LiteralPath $zip`
--DestinationPath $target `
--Force
-
-Write-Output 'EXTRACTION_SUCCESS'
-"""
-
-result = session.run_ps(ps_extract)
-
-if result.status_code != 0:
-
-```
-print(
-    result.std_err.decode(
-        errors="ignore"
-    )
-)
-
-raise Exception(
-    "Failed to extract deployment ZIP."
-)
-```
-
-print(
-result.std_out.decode(
-errors="ignore"
-)
-)
-
-print("")
-print("==========================================")
-print("Verifying deployed UI")
-print("==========================================")
-
-ps_verify = f"""
-$target = '{target}'
-
-if (-not (Test-Path -LiteralPath $target)) {{
-Write-Error 'TARGET_FOLDER_NOT_FOUND'
-exit 1
-}}
-
-$package = Join-Path $target 'package.json'
-$webconfig = Join-Path $target 'web.config'
-
-if (-not (Test-Path -LiteralPath $package)) {{
-Write-Error 'package.json NOT FOUND'
-exit 1
-}}
-
-if (-not (Test-Path -LiteralPath $webconfig)) {{
-Write-Error 'web.config NOT FOUND'
-exit 1
-}}
-
-$count = (
-Get-ChildItem `        -LiteralPath $target`
--Recurse `
--File |
-Measure-Object
-).Count
-
-Write-Output 'DEPLOYMENT_VERIFIED'
-Write-Output "FILES_ON_SERVER=$count"
-Write-Output "PACKAGE_JSON_FOUND=$((Test-Path -LiteralPath $package))"
-Write-Output "WEBCONFIG_FOUND=$((Test-Path -LiteralPath $webconfig))"
-"""
-
-result = session.run_ps(ps_verify)
-
-print(
-result.std_out.decode(
-errors="ignore"
-)
-)
-
-if result.status_code != 0:
-
-```
-print(
-    result.std_err.decode(
-        errors="ignore"
-    )
-)
-
-raise Exception(
-    "Deployment verification failed."
-)
-```
-
-print("")
-print("==========================================")
-print("Cleaning remote temporary files")
-print("==========================================")
-
-ps_cleanup = f"""
-$remoteTemp = '{remote_temp}'
-
-if (Test-Path -LiteralPath $remoteTemp) {{
-
-```
-Remove-Item `
-    -LiteralPath $remoteTemp `
-    -Recurse `
-    -Force
-```
-
-}}
-
-Write-Output 'REMOTE_TEMP_CLEANED'
-"""
-
-result = session.run_ps(ps_cleanup)
-
-if result.status_code != 0:
-
-```
-print(
-    "WARNING: Could not clean remote temporary files."
-)
-
-print(
-    result.std_err.decode(
-        errors="ignore"
-    )
-)
-```
-
-else:
-
-```
-print(
-    result.std_out.decode(
-        errors="ignore"
-    )
-)
-```
-
-print("")
-print("==========================================")
-print("UI DEPLOYMENT COMPLETED SUCCESSFULLY")
-print("==========================================")
-print("Server :", server)
-print("Target :", target)
-print("==========================================")
-
-PY
 '''
-}
-}
 
-```
-    stage('Verify Deployment') {
-        steps {
+result = session.run_ps(validate_script)
 
-            withCredentials([
-                usernamePassword(
-                    credentialsId: 'puffin-iis-winrm',
-                    usernameVariable: 'IIS_USER',
-                    passwordVariable: 'IIS_PASSWORD'
-                )
-            ]) {
+if result.status_code != 0:
+    print("ERROR validating ZIP:")
+    print(result.std_err.decode(errors="ignore"))
+    sys.exit(1)
 
-                sh '''
-```
+print(result.std_out.decode(errors="ignore"))
 
-python3 - <<'PY'
+
+print("Deploying files to IIS...")
+
+
+deploy_script = f'''
+$ErrorActionPreference = "Stop"
+
+$zip = "{remote_zip}"
+$target = "{target}"
+
+if (!(Test-Path $target)) {{
+    New-Item -ItemType Directory -Path $target -Force | Out-Null
+}}
+
+Write-Output "IIS_TARGET:"
+Write-Output $target
+
+Expand-Archive `
+    -LiteralPath $zip `
+    -DestinationPath $target `
+    -Force
+
+Write-Output "IIS_DEPLOYMENT_COMPLETED"
+'''
+
+result = session.run_ps(deploy_script)
+
+if result.status_code != 0:
+    print("ERROR deploying to IIS:")
+    print(result.std_err.decode(errors="ignore"))
+    sys.exit(1)
+
+print(result.std_out.decode(errors="ignore"))
+
+
+print("Cleaning remote temporary files...")
+
+
+cleanup_script = f'''
+$ErrorActionPreference = "SilentlyContinue"
+
+$remoteTemp = "{remote_temp}"
+
+if (Test-Path $remoteTemp) {{
+    Remove-Item $remoteTemp -Recurse -Force
+}}
+
+Write-Output "REMOTE_CLEANUP_COMPLETED"
+'''
+
+result = session.run_ps(cleanup_script)
+
+print(result.std_out.decode(errors="ignore"))
+
+print("==========================================")
+print("IIS DEPLOYMENT SUCCESSFUL")
+print("==========================================")
+PYTHON
+                    '''
+                }
+            }
+        }
+
+        stage('Verify Deployment') {
+            steps {
+                echo '=========================================='
+                echo 'VERIFY IIS DEPLOYMENT'
+                echo '=========================================='
+
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'puffin-iis-winrm',
+                        usernameVariable: 'WINRM_USER',
+                        passwordVariable: 'WINRM_PASSWORD'
+                    )
+                ]) {
+
+                    sh '''
+                        python3 - <<'PYTHON'
 import os
 import winrm
+import sys
 
 server = os.environ["IIS_SERVER"]
 target = os.environ["IIS_TARGET"]
-
-username = os.environ["IIS_USER"]
-password = os.environ["IIS_PASSWORD"]
-
-print("==========================================")
-print("Final IIS Deployment Verification")
-print("==========================================")
+username = os.environ["WINRM_USER"]
+password = os.environ["WINRM_PASSWORD"]
 
 session = winrm.Session(
-f"http://{server}:5985/wsman",
-auth=(username, password),
-transport="ntlm"
+    f"http://{server}:5985/wsman",
+    auth=(username, password),
+    transport="ntlm"
 )
 
-ps_verify = f"""
-$target = '{target}'
+script = f'''
+$ErrorActionPreference = "Stop"
 
-if (-not (Test-Path -LiteralPath $target)) {{
-Write-Error 'TARGET_FOLDER_NOT_FOUND'
-exit 1
+$target = "{target}"
+
+if (!(Test-Path $target)) {{
+    throw "IIS deployment directory does not exist."
 }}
 
-$package = Join-Path $target 'package.json'
-$webconfig = Join-Path $target 'web.config'
+$package = Join-Path $target "package.json"
+$webconfig = Join-Path $target "web.config"
 
-if (-not (Test-Path -LiteralPath $package)) {{
-Write-Error 'package.json NOT FOUND'
-exit 1
+if (!(Test-Path $package)) {{
+    throw "package.json not found."
 }}
 
-if (-not (Test-Path -LiteralPath $webconfig)) {{
-Write-Error 'web.config NOT FOUND'
-exit 1
+if (!(Test-Path $webconfig)) {{
+    throw "web.config not found."
 }}
+
+Write-Output "DEPLOYMENT_DIRECTORY_EXISTS"
+Write-Output "PACKAGE_JSON_EXISTS"
+Write-Output "WEB_CONFIG_EXISTS"
 
 $count = (
-Get-ChildItem `        -LiteralPath $target`
--Recurse `
--File |
-Measure-Object
+    Get-ChildItem $target -Recurse -File |
+    Measure-Object
 ).Count
 
-Write-Output '=========================================='
-Write-Output 'DEPLOYMENT VERIFIED'
-Write-Output '=========================================='
-Write-Output "TARGET=$target"
-Write-Output "FILES_ON_SERVER=$count"
-Write-Output "PACKAGE_JSON=$((Test-Path -LiteralPath $package))"
-Write-Output "WEBCONFIG=$((Test-Path -LiteralPath $webconfig))"
-Write-Output '=========================================='
-"""
+Write-Output "DEPLOYED_FILE_COUNT=$count"
 
-result = session.run_ps(ps_verify)
+if ($count -eq 0) {{
+    throw "No deployed files found."
+}}
 
-print(
-result.std_out.decode(
-errors="ignore"
-)
-)
+Write-Output "DEPLOYMENT_VERIFICATION_SUCCESS"
+'''
+
+result = session.run_ps(script)
 
 if result.status_code != 0:
+    print("DEPLOYMENT VERIFICATION FAILED")
+    print(result.std_err.decode(errors="ignore"))
+    sys.exit(1)
 
-```
-print(
-    result.std_err.decode(
-        errors="ignore"
-    )
-)
-
-raise Exception(
-    "Final deployment verification failed."
-)
-```
-
-print("")
-print("==========================================")
-print("FINAL DEPLOYMENT VERIFICATION SUCCESSFUL")
-print("==========================================")
-
-PY
-'''
-}
-}
-}
-}
-
-```
-post {
-
-    success {
-        echo '=========================================='
-        echo 'Puffin 3.0 UI Deployment SUCCESSFUL'
-        echo '=========================================='
-        echo "Server: ${env.IIS_SERVER}"
-        echo "Target: ${env.IIS_TARGET}"
-        echo '=========================================='
+print(result.std_out.decode(errors="ignore"))
+PYTHON
+                    '''
+                }
+            }
+        }
     }
 
-    failure {
-        echo '=========================================='
-        echo 'Puffin 3.0 UI Deployment FAILED'
-        echo '=========================================='
-    }
+    post {
+        success {
+            echo '=========================================='
+            echo 'PUFFIN UI DEPLOYMENT SUCCESSFUL'
+            echo '=========================================='
+            echo 'GitHub -> Jenkins -> IIS deployment completed successfully.'
+        }
 
-    always {
-        sh '''
-            rm -f "$DEPLOY_ZIP" 2>/dev/null || true
-            rm -rf deployment_chunks 2>/dev/null || true
-        '''
-    }
-}
-```
+        failure {
+            echo '=========================================='
+            echo 'PUFFIN UI DEPLOYMENT FAILED'
+            echo '=========================================='
+            echo 'Please check the Jenkins console log.'
+        }
 
+        always {
+            sh '''
+                rm -f "$DEPLOY_ZIP" || true
+                rm -rf deployment_chunks || true
+            '''
+        }
+    }
 }
