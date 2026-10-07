@@ -136,7 +136,7 @@ pipeline {
 
         stage('Deploy to IIS') {
             steps {
-                echo 'DEPLOY TO IIS'
+                echo 'DEPLOY TO IIS (OVERWRITE MODE)'
 
                 // Forward slashes only: PowerShell accepts them and Groovy won't treat them as escapes
                 writeFile file: 'deploy_puffin_ui.ps1', text: '''
@@ -150,7 +150,7 @@ $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
 $backup    = "$backupRoot/PuffinUI_$timestamp"
 
 Write-Host "=========================================="
-Write-Host "PUFFIN UI IIS DEPLOYMENT"
+Write-Host "PUFFIN UI IIS DEPLOYMENT (OVERWRITE MODE)"
 Write-Host "=========================================="
 Write-Host "ZIP    : $zip"
 Write-Host "TARGET : $target"
@@ -173,18 +173,15 @@ if ($existing.Count -gt 0) {
     Write-Host "No existing files found, skipping backup."
 }
 
-Write-Host "Cleaning existing deployment..."
-Get-ChildItem -LiteralPath $target -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force
-
-Write-Host "Extracting ZIP..."
+# No cleanup: existing files not in the ZIP stay as they are.
+Write-Host "Extracting ZIP over existing deployment (replace same files only)..."
 Expand-Archive -LiteralPath $zip -DestinationPath $target -Force
+Write-Host "Extraction completed."
 
 if (!(Test-Path -LiteralPath "$target/package.json")) { throw "package.json not found after deployment." }
 if (!(Test-Path -LiteralPath "$target/web.config"))   { throw "web.config not found after deployment." }
 
 $fileCount = @(Get-ChildItem -LiteralPath $target -Recurse -File).Count
-if ($fileCount -eq 0) { throw "Deployment directory is empty." }
-
 Write-Host "package.json : FOUND"
 Write-Host "web.config   : FOUND"
 Write-Host "File count   : $fileCount"
