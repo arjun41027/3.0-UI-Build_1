@@ -4,7 +4,7 @@ pipeline {
 
     environment {
         IIS_SERVER = '172.16.4.166'
-        IIS_TARGET = 'C:\\inetpub\\wwwroot\\PuffinMT_Demo\\PuffinUI'
+        IIS_TARGET = 'C:\\inetpub\\wwwroot\\PuffinMT_CXP\\PuffinUI'
         UI_BUILD_PATH = 'Desktop/3.0 UI and API Docs/3.0 UI Build'
         DEPLOY_ZIP_NAME = 'PuffinUI_deploy.zip'
     }
@@ -72,7 +72,7 @@ session = winrm.Session(
     transport="ntlm"
 )
 
-backup_base = r"C:\\inetpub\\wwwroot\\PuffinMT_Demo\\Backup"
+backup_base = r"C:\\inetpub\\wwwroot\\PuffinMT_CXP\\Backup"
 
 command = "\\n".join([
     "$ErrorActionPreference = 'Stop'",
