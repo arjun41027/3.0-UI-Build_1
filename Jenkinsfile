@@ -1,253 +1,331 @@
 pipeline {
     agent any
 
-    options {
-        skipDefaultCheckout(true)
-        timestamps()
-        timeout(time: 30, unit: 'MINUTES')
-    }
-
     environment {
         IIS_SERVER = '172.16.4.166'
-        UI_SOURCE  = 'Desktop/3.0 UI and API Docs/3.0 UI Build'
-        DEPLOY_ZIP = 'PuffinUI_Deployment.zip'
-        SSH_OPTS   = '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=15'
+        IIS_TARGET = 'C:\\inetpub\\wwwroot\\PuffinMT_Demo\\PuffinUI'
+        UI_BUILD_PATH = 'Desktop/3.0 UI and API Docs/3.0 UI Build'
+    }
+
+    options {
+        timestamps()
+        timeout(time: 60, unit: 'MINUTES')
+        disableConcurrentBuilds()
     }
 
     stages {
-
-        stage('Checkout') {
+        stage('Checkout UI Build') {
             steps {
-                echo 'CHECKOUT FROM GITHUB'
                 checkout scm
-                sh '''
-                    set -e
-                    echo "Workspace: $WORKSPACE"
-                    echo "Branch:"; git branch --show-current || true
-                    echo "Commit:"; git rev-parse --short HEAD
-                    echo "Remote:"; git remote -v
-                '''
             }
         }
 
-        stage('Verify UI Source') {
+        stage('Verify UI Build') {
             steps {
-                echo 'VERIFY UI SOURCE'
-                sh '''
-                    set -e
-                    echo "UI Source: $UI_SOURCE"
+                script {
+                    if (!fileExists("${env.UI_BUILD_PATH}/web.config")) {
+                        error("web.config not found in ${env.UI_BUILD_PATH}")
+                    }
 
-                    [ -d "$UI_SOURCE" ] || { echo "ERROR: UI source directory not found."; exit 1; }
-                    [ -f "$UI_SOURCE/package.json" ] || { echo "ERROR: package.json not found."; exit 1; }
-                    [ -f "$UI_SOURCE/web.config" ] || { echo "ERROR: web.config not found."; exit 1; }
+                    if (!fileExists("${env.UI_BUILD_PATH}/package.json")) {
+                        error("package.json not found in ${env.UI_BUILD_PATH}")
+                    }
 
-                    echo "package.json: FOUND"
-                    echo "web.config: FOUND"
-                    echo "Top-level files:"
-                    find "$UI_SOURCE" -maxdepth 1 -type f -printf '%f\\n' | sort
-                '''
+                    if (!fileExists("${env.UI_BUILD_PATH}/.next")) {
+                        error(".next build folder not found in ${env.UI_BUILD_PATH}")
+                    }
+
+                    echo 'UI build verification passed.'
+                }
             }
         }
 
-        stage('Create Deployment ZIP') {
+        stage('Backup Existing IIS UI') {
             steps {
-                echo 'CREATE DEPLOYMENT ZIP'
-                sh '''
-                    set -e
-                    rm -f "$DEPLOY_ZIP"
-
-                    cd "$UI_SOURCE"
-                    zip -r "$WORKSPACE/$DEPLOY_ZIP" . -x "Jenkinsfile" -x "iisnode/*"
-                    cd "$WORKSPACE"
-
-                    ls -lh "$DEPLOY_ZIP"
-
-                    unzip -l "$DEPLOY_ZIP" | grep -q "package.json"
-                    unzip -l "$DEPLOY_ZIP" | grep -q "web.config"
-                    echo "ZIP validation OK"
-                '''
-            }
-        }
-
-        stage('Test SSH') {
-            steps {
-                echo 'TEST SSH CONNECTION'
-                withCredentials([usernamePassword(credentialsId: 'puffin-iis-winrm',
-                                                  usernameVariable: 'SSH_USER',
-                                                  passwordVariable: 'SSH_PASSWORD')]) {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'puffin-iis-winrm',
+                        usernameVariable: 'IIS_USER',
+                        passwordVariable: 'IIS_PASSWORD'
+                    )
+                ]) {
                     sh '''
-                        set -e
-                        export SSHPASS="$SSH_PASSWORD"
+                        python3 - <<'PY'
+import os
+import sys
+import winrm
 
-                        if ! command -v sshpass >/dev/null 2>&1; then
-                            echo "ERROR: sshpass is not installed."
-                            echo "Run: sudo apt-get update && sudo apt-get install -y sshpass"
-                            exit 1
-                        fi
+server = os.environ["IIS_SERVER"]
+target = os.environ["IIS_TARGET"]
+username = os.environ["IIS_USER"]
+password = os.environ["IIS_PASSWORD"]
 
-                        echo "Remote user:"
-                        sshpass -e ssh $SSH_OPTS "$SSH_USER@$IIS_SERVER" "whoami"
-                        echo "SSH CONNECTION SUCCESS"
+def ps_quote(value):
+    return "'" + value.replace("'", "''") + "'"
+
+def run_ps_checked(session, command, description):
+    result = session.run_ps(command)
+
+    stdout = result.std_out.decode("utf-8", errors="replace")
+    stderr = result.std_err.decode("utf-8", errors="replace")
+
+    if stdout.strip():
+        print(stdout)
+
+    if stderr.strip():
+        print(stderr)
+
+    if result.status_code != 0:
+        raise RuntimeError(
+            description + " failed with exit code " +
+            str(result.status_code)
+        )
+
+session = winrm.Session(
+    f"http://{server}:5985/wsman",
+    auth=(username, password),
+    transport="ntlm"
+)
+
+backup_base = r"C:\\inetpub\\wwwroot\\PuffinMT_Demo\\Backup"
+
+command = "\\n".join([
+    "$ErrorActionPreference = 'Stop'",
+    f"$target = {ps_quote(target)}",
+    f"$backupBase = {ps_quote(backup_base)}",
+    "if (!(Test-Path -LiteralPath $target -PathType Container)) {",
+    "    throw ('IIS target folder does not exist: ' + $target)",
+    "}",
+    "$items = @(Get-ChildItem -LiteralPath $target -Force)",
+    "if ($items.Count -gt 0) {",
+    "    New-Item -ItemType Directory -Path $backupBase -Force | Out-Null",
+    "    $stamp = Get-Date -Format 'yyyyMMdd_HHmmss'",
+    "    $backup = Join-Path $backupBase ('PuffinUI_' + $stamp)",
+    "    New-Item -ItemType Directory -Path $backup -Force | Out-Null",
+    "    Copy-Item -Path (Join-Path $target '*') -Destination $backup -Recurse -Force",
+    "    Write-Output ('BACKUP_PATH=' + $backup)",
+    "} else {",
+    "    Write-Output 'TARGET_EMPTY_NO_BACKUP'",
+    "}"
+])
+
+run_ps_checked(session, command, "Backup existing IIS UI")
+print("Existing UI backup stage completed.")
+PY
                     '''
                 }
             }
         }
 
-        stage('Prepare Remote Directory') {
+        stage('Deploy UI to IIS') {
             steps {
-                echo 'PREPARE REMOTE DIRECTORY'
-                withCredentials([usernamePassword(credentialsId: 'puffin-iis-winrm',
-                                                  usernameVariable: 'SSH_USER',
-                                                  passwordVariable: 'SSH_PASSWORD')]) {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'puffin-iis-winrm',
+                        usernameVariable: 'IIS_USER',
+                        passwordVariable: 'IIS_PASSWORD'
+                    )
+                ]) {
                     sh '''
-                        set -e
-                        export SSHPASS="$SSH_PASSWORD"
+                        python3 - <<'PY'
+import os
+import base64
+import winrm
 
-                        sshpass -e ssh $SSH_OPTS "$SSH_USER@$IIS_SERVER" \
-                            "powershell.exe -NoProfile -Command New-Item -ItemType Directory -Path C:/Windows/Temp/PuffinUI_Deployment -Force"
+server = os.environ["IIS_SERVER"]
+target = os.environ["IIS_TARGET"]
+source = os.path.abspath(os.environ["UI_BUILD_PATH"])
+username = os.environ["IIS_USER"]
+password = os.environ["IIS_PASSWORD"]
 
-                        echo "REMOTE DIRECTORY READY"
+def ps_quote(value):
+    return "'" + value.replace("'", "''") + "'"
+
+def run_ps_checked(session, command, description):
+    result = session.run_ps(command)
+
+    stdout = result.std_out.decode("utf-8", errors="replace")
+    stderr = result.std_err.decode("utf-8", errors="replace")
+
+    if stdout.strip():
+        print(stdout)
+
+    if stderr.strip():
+        print(stderr)
+
+    if result.status_code != 0:
+        raise RuntimeError(
+            description + " failed with exit code " +
+            str(result.status_code)
+        )
+
+if not os.path.isdir(source):
+    raise RuntimeError("UI build source folder not found: " + source)
+
+if not os.path.isfile(os.path.join(source, "web.config")):
+    raise RuntimeError("web.config not found in source folder")
+
+session = winrm.Session(
+    f"http://{server}:5985/wsman",
+    auth=(username, password),
+    transport="ntlm"
+)
+
+# Ensure the existing target directory is present.
+mkdir_command = "\\n".join([
+    "$ErrorActionPreference = 'Stop'",
+    f"$target = {ps_quote(target)}",
+    "New-Item -ItemType Directory -Path $target -Force | Out-Null",
+    "Write-Output 'TARGET_READY'"
+])
+
+run_ps_checked(session, mkdir_command, "Prepare IIS target")
+
+copied_files = 0
+
+for root, dirs, files in os.walk(source):
+    relative_dir = os.path.relpath(root, source)
+
+    if relative_dir == ".":
+        remote_dir = target
+    else:
+        remote_dir = target.rstrip("\\\\") + "\\\\" + relative_dir.replace("/", "\\\\")
+
+    # Create each destination directory without deleting the application folder.
+    mkdir_command = "\\n".join([
+        "$ErrorActionPreference = 'Stop'",
+        f"$directory = {ps_quote(remote_dir)}",
+        "New-Item -ItemType Directory -Path $directory -Force | Out-Null"
+    ])
+
+    run_ps_checked(
+        session,
+        mkdir_command,
+        "Create destination directory"
+    )
+
+    for filename in files:
+        local_file = os.path.join(root, filename)
+        relative_file = os.path.relpath(local_file, source)
+        relative_file = relative_file.replace("/", "\\\\")
+        remote_file = target.rstrip("\\\\") + "\\\\" + relative_file
+
+        with open(local_file, "rb") as file_handle:
+            encoded = base64.b64encode(file_handle.read()).decode("ascii")
+
+        write_command = (
+            "$ErrorActionPreference = 'Stop'; "
+            f"$filePath = {ps_quote(remote_file)}; "
+            f"$data = [Convert]::FromBase64String('{encoded}'); "
+            "$parent = Split-Path -Parent $filePath; "
+            "New-Item -ItemType Directory -Path $parent -Force | Out-Null; "
+            "[System.IO.File]::WriteAllBytes($filePath, $data); "
+            "Write-Output 'FILE_COPIED'"
+        )
+
+        run_ps_checked(
+            session,
+            write_command,
+            "Copy file " + relative_file
+        )
+
+        copied_files += 1
+        print("Copied: " + relative_file)
+
+print("Total files copied: " + str(copied_files))
+print("UI files copied to IIS successfully.")
+PY
                     '''
                 }
             }
         }
 
-        stage('Upload ZIP via SCP') {
+        stage('Verify IIS Deployment') {
             steps {
-                echo 'UPLOAD ZIP VIA SCP'
-                withCredentials([usernamePassword(credentialsId: 'puffin-iis-winrm',
-                                                  usernameVariable: 'SSH_USER',
-                                                  passwordVariable: 'SSH_PASSWORD')]) {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'puffin-iis-winrm',
+                        usernameVariable: 'IIS_USER',
+                        passwordVariable: 'IIS_PASSWORD'
+                    )
+                ]) {
                     sh '''
-                        set -e
-                        export SSHPASS="$SSH_PASSWORD"
+                        python3 - <<'PY'
+import os
+import winrm
 
-                        [ -f "$DEPLOY_ZIP" ] || { echo "ERROR: Deployment ZIP not found."; exit 1; }
-                        ls -lh "$DEPLOY_ZIP"
+server = os.environ["IIS_SERVER"]
+target = os.environ["IIS_TARGET"]
+username = os.environ["IIS_USER"]
+password = os.environ["IIS_PASSWORD"]
 
-                        sshpass -e scp $SSH_OPTS "$DEPLOY_ZIP" \
-                            "$SSH_USER@$IIS_SERVER:/C:/Windows/Temp/PuffinUI_Deployment/PuffinUI_Deployment.zip"
+def ps_quote(value):
+    return "'" + value.replace("'", "''") + "'"
 
-                        echo "SCP UPLOAD SUCCESS"
+session = winrm.Session(
+    f"http://{server}:5985/wsman",
+    auth=(username, password),
+    transport="ntlm"
+)
+
+command = "\\n".join([
+    "$ErrorActionPreference = 'Stop'",
+    f"$target = {ps_quote(target)}",
+    "if (!(Test-Path -LiteralPath (Join-Path $target 'web.config') -PathType Leaf)) {",
+    "    throw 'Deployment verification failed: web.config is missing'",
+    "}",
+    "if (!(Test-Path -LiteralPath (Join-Path $target 'package.json') -PathType Leaf)) {",
+    "    throw 'Deployment verification failed: package.json is missing'",
+    "}",
+    "if (!(Test-Path -LiteralPath (Join-Path $target '.next') -PathType Container)) {",
+    "    throw 'Deployment verification failed: .next directory is missing'",
+    "}",
+    "Write-Output 'DEPLOYMENT_VERIFIED'",
+    "Write-Output ('Verified target: ' + $target)"
+])
+
+result = session.run_ps(command)
+
+stdout = result.std_out.decode("utf-8", errors="replace")
+stderr = result.std_err.decode("utf-8", errors="replace")
+
+if stdout.strip():
+    print(stdout)
+
+if stderr.strip():
+    print(stderr)
+
+if result.status_code != 0 or "DEPLOYMENT_VERIFIED" not in stdout:
+    raise RuntimeError("IIS deployment verification failed")
+
+print("IIS deployment verification passed.")
+PY
                     '''
                 }
             }
         }
 
-        stage('Deploy to IIS') {
+        stage('Run Cypress Smoke Tests') {
             steps {
-                echo 'DEPLOY TO IIS (OVERWRITE MODE)'
+                script {
+                    echo 'IIS deployment verified. Starting Cypress smoke tests.'
 
-                // Forward slashes only: PowerShell accepts them and Groovy won't treat them as escapes
-                writeFile file: 'deploy_puffin_ui.ps1', text: '''
-$ErrorActionPreference = "Stop"
+                    def smokeBuild = build(
+                        job: '3,0 UI Automation',
+                        wait: true,
+                        propagate: false
+                    )
 
-$target     = "C:/inetpub/wwwroot/PuffinMT_Demo/PuffinUI"
-$zip        = "C:/Windows/Temp/PuffinUI_Deployment/PuffinUI_Deployment.zip"
-$backupRoot = "C:/inetpub/wwwroot/PuffinMT_Demo/Backup"
+                    echo "Cypress smoke-test job result: ${smokeBuild.result}"
 
-$timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-$backup    = "$backupRoot/PuffinUI_$timestamp"
+                    if (smokeBuild.result != 'SUCCESS') {
+                        error(
+                            "Deployment completed, but Cypress smoke tests did not pass. " +
+                            "Automation job result: ${smokeBuild.result}"
+                        )
+                    }
 
-Write-Host "=========================================="
-Write-Host "PUFFIN UI IIS DEPLOYMENT (OVERWRITE MODE)"
-Write-Host "=========================================="
-Write-Host "ZIP    : $zip"
-Write-Host "TARGET : $target"
-Write-Host "BACKUP : $backup"
-
-if (!(Test-Path -LiteralPath $zip)) { throw "Deployment ZIP not found: $zip" }
-Write-Host "ZIP size: $((Get-Item -LiteralPath $zip).Length) bytes"
-
-if (!(Test-Path -LiteralPath $backupRoot)) { New-Item -ItemType Directory -Path $backupRoot -Force | Out-Null }
-if (!(Test-Path -LiteralPath $target))     { New-Item -ItemType Directory -Path $target -Force | Out-Null }
-
-$existing = @(Get-ChildItem -LiteralPath $target -Force -ErrorAction SilentlyContinue)
-
-if ($existing.Count -gt 0) {
-    Write-Host "Creating backup..."
-    New-Item -ItemType Directory -Path $backup -Force | Out-Null
-    Copy-Item -Path "$target/*" -Destination $backup -Recurse -Force
-    Write-Host "Backup completed."
-} else {
-    Write-Host "No existing files found, skipping backup."
-}
-
-# No cleanup: existing files not in the ZIP stay as they are.
-Write-Host "Extracting ZIP over existing deployment (replace same files only)..."
-Expand-Archive -LiteralPath $zip -DestinationPath $target -Force
-Write-Host "Extraction completed."
-
-if (!(Test-Path -LiteralPath "$target/package.json")) { throw "package.json not found after deployment." }
-if (!(Test-Path -LiteralPath "$target/web.config"))   { throw "web.config not found after deployment." }
-
-$fileCount = @(Get-ChildItem -LiteralPath $target -Recurse -File).Count
-Write-Host "package.json : FOUND"
-Write-Host "web.config   : FOUND"
-Write-Host "File count   : $fileCount"
-
-Remove-Item -LiteralPath (Split-Path -Parent $zip) -Recurse -Force -ErrorAction SilentlyContinue
-
-Write-Host "=========================================="
-Write-Host "PUFFIN UI DEPLOYMENT SUCCESS"
-Write-Host "=========================================="
-'''
-
-                withCredentials([usernamePassword(credentialsId: 'puffin-iis-winrm',
-                                                  usernameVariable: 'SSH_USER',
-                                                  passwordVariable: 'SSH_PASSWORD')]) {
-                    sh '''
-                        set -e
-                        export SSHPASS="$SSH_PASSWORD"
-
-                        sshpass -e scp $SSH_OPTS deploy_puffin_ui.ps1 \
-                            "$SSH_USER@$IIS_SERVER:/C:/Windows/Temp/deploy_puffin_ui.ps1"
-
-                        sshpass -e ssh $SSH_OPTS "$SSH_USER@$IIS_SERVER" \
-                            "powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:/Windows/Temp/deploy_puffin_ui.ps1"
-
-                        rm -f deploy_puffin_ui.ps1
-                    '''
-                }
-            }
-        }
-
-        stage('Verify Deployment') {
-            steps {
-                echo 'VERIFY IIS DEPLOYMENT'
-
-                writeFile file: 'verify_puffin_ui.ps1', text: '''
-$ErrorActionPreference = "Stop"
-$target = "C:/inetpub/wwwroot/PuffinMT_Demo/PuffinUI"
-
-if (!(Test-Path -LiteralPath $target))                      { throw "IIS target directory does not exist" }
-if (!(Test-Path -LiteralPath "$target/package.json"))       { throw "package.json missing" }
-if (!(Test-Path -LiteralPath "$target/web.config"))         { throw "web.config missing" }
-
-$count = @(Get-ChildItem -LiteralPath $target -Recurse -File).Count
-Write-Host "Target     : $target"
-Write-Host "File count : $count"
-Write-Host "Deployment verification successful."
-'''
-
-                withCredentials([usernamePassword(credentialsId: 'puffin-iis-winrm',
-                                                  usernameVariable: 'SSH_USER',
-                                                  passwordVariable: 'SSH_PASSWORD')]) {
-                    sh '''
-                        set -e
-                        export SSHPASS="$SSH_PASSWORD"
-
-                        sshpass -e scp $SSH_OPTS verify_puffin_ui.ps1 \
-                            "$SSH_USER@$IIS_SERVER:/C:/Windows/Temp/verify_puffin_ui.ps1"
-
-                        sshpass -e ssh $SSH_OPTS "$SSH_USER@$IIS_SERVER" \
-                            "powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:/Windows/Temp/verify_puffin_ui.ps1"
-
-                        sshpass -e ssh $SSH_OPTS "$SSH_USER@$IIS_SERVER" \
-                            "powershell.exe -NoProfile -Command Remove-Item C:/Windows/Temp/deploy_puffin_ui.ps1,C:/Windows/Temp/verify_puffin_ui.ps1 -Force -ErrorAction SilentlyContinue" || true
-
-                        rm -f verify_puffin_ui.ps1
-                    '''
+                    echo 'Cypress smoke tests passed.'
                 }
             }
         }
@@ -255,16 +333,15 @@ Write-Host "Deployment verification successful."
 
     post {
         success {
-            echo 'PUFFIN UI DEPLOYMENT SUCCESSFUL: GitHub -> Jenkins -> SCP -> IIS'
+            echo 'Deployment and Cypress smoke tests completed successfully.'
         }
+
         failure {
-            echo 'PUFFIN UI DEPLOYMENT FAILED. Please check the Jenkins console log.'
+            echo 'Pipeline failed. Check the Jenkins console output to identify the failed stage.'
         }
+
         always {
-            sh '''
-                rm -f "$DEPLOY_ZIP" deploy_puffin_ui.ps1 verify_puffin_ui.ps1
-                echo "Local deployment files cleaned."
-            '''
+            echo "Final deployment pipeline result: ${currentBuild.currentResult}"
         }
     }
 }
