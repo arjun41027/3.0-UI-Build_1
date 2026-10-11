@@ -1,3 +1,4 @@
+
 pipeline {
     agent any
 
@@ -8,9 +9,11 @@ pipeline {
     }
 
     options {
+        skipDefaultCheckout(true)
         timestamps()
         timeout(time: 60, unit: 'MINUTES')
         disableConcurrentBuilds()
+        buildDiscarder(logRotator(numToKeepStr: '20'))
     }
 
     stages {
@@ -24,15 +27,15 @@ pipeline {
             steps {
                 script {
                     if (!fileExists("${env.UI_BUILD_PATH}/web.config")) {
-                        error("web.config not found in ${env.UI_BUILD_PATH}")
+                        error("web.config not found: ${env.UI_BUILD_PATH}")
                     }
 
                     if (!fileExists("${env.UI_BUILD_PATH}/package.json")) {
-                        error("package.json not found in ${env.UI_BUILD_PATH}")
+                        error("package.json not found: ${env.UI_BUILD_PATH}")
                     }
 
                     if (!fileExists("${env.UI_BUILD_PATH}/.next")) {
-                        error(".next build folder not found in ${env.UI_BUILD_PATH}")
+                        error(".next build folder not found: ${env.UI_BUILD_PATH}")
                     }
 
                     echo 'UI build verification passed.'
@@ -52,7 +55,6 @@ pipeline {
                     sh '''
                         python3 - <<'PY'
 import os
-import sys
 import winrm
 
 server = os.environ["IIS_SERVER"]
@@ -62,24 +64,6 @@ password = os.environ["IIS_PASSWORD"]
 
 def ps_quote(value):
     return "'" + value.replace("'", "''") + "'"
-
-def run_ps_checked(session, command, description):
-    result = session.run_ps(command)
-
-    stdout = result.std_out.decode("utf-8", errors="replace")
-    stderr = result.std_err.decode("utf-8", errors="replace")
-
-    if stdout.strip():
-        print(stdout)
-
-    if stderr.strip():
-        print(stderr)
-
-    if result.status_code != 0:
-        raise RuntimeError(
-            description + " failed with exit code " +
-            str(result.status_code)
-        )
 
 session = winrm.Session(
     f"http://{server}:5985/wsman",
@@ -109,7 +93,21 @@ command = "\\n".join([
     "}"
 ])
 
-run_ps_checked(session, command, "Backup existing IIS UI")
+result = session.run_ps(command)
+stdout = result.std_out.decode("utf-8", errors="replace")
+stderr = result.std_err.decode("utf-8", errors="replace")
+
+if stdout.strip():
+    print(stdout)
+if stderr.strip():
+    print(stderr)
+
+if result.status_code != 0:
+    raise RuntimeError("Backup of existing IIS UI failed")
+
+if "BACKUP_PATH=" not in stdout and "TARGET_EMPTY_NO_BACKUP" not in stdout:
+    raise RuntimeError("Backup stage did not confirm its result")
+
 print("Existing UI backup stage completed.")
 PY
                     '''
@@ -130,6 +128,8 @@ PY
                         python3 - <<'PY'
 import os
 import base64
+import tempfile
+import zipfile
 import winrm
 
 server = os.environ["IIS_SERVER"]
@@ -138,32 +138,39 @@ source = os.path.abspath(os.environ["UI_BUILD_PATH"])
 username = os.environ["IIS_USER"]
 password = os.environ["IIS_PASSWORD"]
 
+remote_zip = (
+    r"C:\\inetpub\\wwwroot\\PuffinMT_Demo\\PuffinUI_deploy.zip"
+)
+chunk_size = 7000
+
 def ps_quote(value):
     return "'" + value.replace("'", "''") + "'"
 
 def run_ps_checked(session, command, description):
     result = session.run_ps(command)
-
     stdout = result.std_out.decode("utf-8", errors="replace")
     stderr = result.std_err.decode("utf-8", errors="replace")
 
     if stdout.strip():
         print(stdout)
 
-    if stderr.strip():
-        print(stderr)
-
     if result.status_code != 0:
+        if stderr.strip():
+            print(stderr)
         raise RuntimeError(
             description + " failed with exit code " +
             str(result.status_code)
         )
 
 if not os.path.isdir(source):
-    raise RuntimeError("UI build source folder not found: " + source)
+    raise RuntimeError("UI build folder not found: " + source)
 
-if not os.path.isfile(os.path.join(source, "web.config")):
-    raise RuntimeError("web.config not found in source folder")
+for required in ["web.config", "package.json"]:
+    if not os.path.isfile(os.path.join(source, required)):
+        raise RuntimeError("Required file missing: " + required)
+
+if not os.path.isdir(os.path.join(source, ".next")):
+    raise RuntimeError(".next build folder is missing")
 
 session = winrm.Session(
     f"http://{server}:5985/wsman",
@@ -171,69 +178,128 @@ session = winrm.Session(
     transport="ntlm"
 )
 
-# Ensure the existing target directory is present.
-mkdir_command = "\\n".join([
-    "$ErrorActionPreference = 'Stop'",
-    f"$target = {ps_quote(target)}",
-    "New-Item -ItemType Directory -Path $target -Force | Out-Null",
-    "Write-Output 'TARGET_READY'"
-])
+zip_path = None
 
-run_ps_checked(session, mkdir_command, "Prepare IIS target")
+try:
+    with tempfile.NamedTemporaryFile(
+        prefix="PuffinUI_",
+        suffix=".zip",
+        delete=False
+    ) as temporary:
+        zip_path = temporary.name
 
-copied_files = 0
+    print("Creating deployment ZIP...")
 
-for root, dirs, files in os.walk(source):
-    relative_dir = os.path.relpath(root, source)
+    # Archive the contents of UI_BUILD_PATH, without adding its parent path.
+    with zipfile.ZipFile(
+        zip_path,
+        "w",
+        compression=zipfile.ZIP_DEFLATED
+    ) as archive:
+        for root, dirs, files in os.walk(source):
+            for filename in files:
+                local_file = os.path.join(root, filename)
+                relative_file = os.path.relpath(local_file, source)
+                archive.write(local_file, arcname=relative_file)
 
-    if relative_dir == ".":
-        remote_dir = target
-    else:
-        remote_dir = target.rstrip("\\\\") + "\\\\" + relative_dir.replace("/", "\\\\")
+    zip_size = os.path.getsize(zip_path)
+    print("ZIP size: {:,} bytes".format(zip_size))
 
-    # Create each destination directory without deleting the application folder.
-    mkdir_command = "\\n".join([
+    prepare_command = "\\n".join([
         "$ErrorActionPreference = 'Stop'",
-        f"$directory = {ps_quote(remote_dir)}",
-        "New-Item -ItemType Directory -Path $directory -Force | Out-Null"
+        f"$zipPath = {ps_quote(remote_zip)}",
+        "$parent = Split-Path -Parent $zipPath",
+        "New-Item -ItemType Directory -Path $parent -Force | Out-Null",
+        "if (Test-Path -LiteralPath $zipPath) {",
+        "    Remove-Item -LiteralPath $zipPath -Force",
+        "}",
+        "Write-Output 'ZIP_TARGET_READY'"
     ])
 
     run_ps_checked(
         session,
-        mkdir_command,
-        "Create destination directory"
+        prepare_command,
+        "Prepare remote ZIP"
     )
 
-    for filename in files:
-        local_file = os.path.join(root, filename)
-        relative_file = os.path.relpath(local_file, source)
-        relative_file = relative_file.replace("/", "\\\\")
-        remote_file = target.rstrip("\\\\") + "\\\\" + relative_file
+    chunks = (zip_size + chunk_size - 1) // chunk_size
+    print("Transferring ZIP in {} chunks...".format(chunks))
 
-        with open(local_file, "rb") as file_handle:
-            encoded = base64.b64encode(file_handle.read()).decode("ascii")
+    with open(zip_path, "rb") as zip_file:
+        for index in range(chunks):
+            data = zip_file.read(chunk_size)
+            encoded = base64.b64encode(data).decode("ascii")
 
-        write_command = (
-            "$ErrorActionPreference = 'Stop'; "
-            f"$filePath = {ps_quote(remote_file)}; "
-            f"$data = [Convert]::FromBase64String('{encoded}'); "
-            "$parent = Split-Path -Parent $filePath; "
-            "New-Item -ItemType Directory -Path $parent -Force | Out-Null; "
-            "[System.IO.File]::WriteAllBytes($filePath, $data); "
-            "Write-Output 'FILE_COPIED'"
-        )
+            if index == 0:
+                write_expression = (
+                    "[System.IO.File]::WriteAllBytes($zipPath, $data)"
+                )
+            else:
+                write_expression = (
+                    "$stream = [System.IO.File]::Open("
+                    "$zipPath, [System.IO.FileMode]::Append, "
+                    "[System.IO.FileAccess]::Write); "
+                    "try { $stream.Write($data, 0, $data.Length) } "
+                    "finally { $stream.Dispose() }"
+                )
 
-        run_ps_checked(
-            session,
-            write_command,
-            "Copy file " + relative_file
-        )
+            command = (
+                "$ErrorActionPreference = 'Stop'; "
+                f"$zipPath = {ps_quote(remote_zip)}; "
+                f"$data = [Convert]::FromBase64String('{encoded}'); "
+                + write_expression
+            )
 
-        copied_files += 1
-        print("Copied: " + relative_file)
+            run_ps_checked(
+                session,
+                command,
+                "Transfer ZIP chunk {}".format(index + 1)
+            )
 
-print("Total files copied: " + str(copied_files))
-print("UI files copied to IIS successfully.")
+            if (index + 1) % 100 == 0 or index + 1 == chunks:
+                print(
+                    "Transferred {}/{} chunks".format(
+                        index + 1, chunks
+                    )
+                )
+
+    extract_command = "\\n".join([
+        "$ErrorActionPreference = 'Stop'",
+        f"$zipPath = {ps_quote(remote_zip)}",
+        f"$target = {ps_quote(target)}",
+        f"$expectedSize = {zip_size}",
+        "if (!(Test-Path -LiteralPath $zipPath -PathType Leaf)) {",
+        "    throw 'Deployment ZIP was not found on IIS'",
+        "}",
+        "$actualSize = (Get-Item -LiteralPath $zipPath).Length",
+        "if ($actualSize -ne $expectedSize) {",
+        "    throw ('ZIP size mismatch. Expected ' + $expectedSize +",
+        "           ', received ' + $actualSize)",
+        "}",
+        "New-Item -ItemType Directory -Path $target -Force | Out-Null",
+        "Expand-Archive -LiteralPath $zipPath -DestinationPath $target -Force",
+        "if (!(Test-Path -LiteralPath (Join-Path $target 'web.config') -PathType Leaf)) {",
+        "    throw 'web.config missing after extraction'",
+        "}",
+        "if (!(Test-Path -LiteralPath (Join-Path $target '.next') -PathType Container)) {",
+        "    throw '.next folder missing after extraction'",
+        "}",
+        "Remove-Item -LiteralPath $zipPath -Force",
+        "Write-Output 'DEPLOYMENT_FILES_EXTRACTED'",
+        "Write-Output ('TARGET=' + $target)"
+    ])
+
+    run_ps_checked(
+        session,
+        extract_command,
+        "Extract deployment ZIP"
+    )
+
+    print("UI deployment files extracted successfully.")
+
+finally:
+    if zip_path and os.path.exists(zip_path):
+        os.remove(zip_path)
 PY
                     '''
                 }
@@ -272,26 +338,24 @@ command = "\\n".join([
     "$ErrorActionPreference = 'Stop'",
     f"$target = {ps_quote(target)}",
     "if (!(Test-Path -LiteralPath (Join-Path $target 'web.config') -PathType Leaf)) {",
-    "    throw 'Deployment verification failed: web.config is missing'",
+    "    throw 'web.config is missing'",
     "}",
     "if (!(Test-Path -LiteralPath (Join-Path $target 'package.json') -PathType Leaf)) {",
-    "    throw 'Deployment verification failed: package.json is missing'",
+    "    throw 'package.json is missing'",
     "}",
     "if (!(Test-Path -LiteralPath (Join-Path $target '.next') -PathType Container)) {",
-    "    throw 'Deployment verification failed: .next directory is missing'",
+    "    throw '.next folder is missing'",
     "}",
     "Write-Output 'DEPLOYMENT_VERIFIED'",
-    "Write-Output ('Verified target: ' + $target)"
+    "Write-Output ('TARGET=' + $target)"
 ])
 
 result = session.run_ps(command)
-
 stdout = result.std_out.decode("utf-8", errors="replace")
 stderr = result.std_err.decode("utf-8", errors="replace")
 
 if stdout.strip():
     print(stdout)
-
 if stderr.strip():
     print(stderr)
 
@@ -308,7 +372,7 @@ PY
         stage('Run Cypress Smoke Tests') {
             steps {
                 script {
-                    echo 'IIS deployment verified. Starting Cypress smoke tests.'
+                    echo 'Deployment verified. Triggering Cypress automation.'
 
                     def smokeBuild = build(
                         job: '3,0 UI Automation',
@@ -316,11 +380,11 @@ PY
                         propagate: false
                     )
 
-                    echo "Cypress smoke-test job result: ${smokeBuild.result}"
+                    echo "Cypress smoke-test result: ${smokeBuild.result}"
 
                     if (smokeBuild.result != 'SUCCESS') {
                         error(
-                            "Deployment completed, but Cypress smoke tests did not pass. " +
+                            "Cypress smoke tests did not pass. " +
                             "Automation job result: ${smokeBuild.result}"
                         )
                     }
@@ -333,11 +397,11 @@ PY
 
     post {
         success {
-            echo 'Deployment and Cypress smoke tests completed successfully.'
+            echo 'UI deployment and Cypress smoke tests completed successfully.'
         }
 
         failure {
-            echo 'Pipeline failed. Check the Jenkins console output to identify the failed stage.'
+            echo 'Pipeline failed. Check the failed stage and Jenkins console output.'
         }
 
         always {
