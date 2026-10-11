@@ -166,7 +166,7 @@ session = winrm.Session(
 )
 
 command = r'''
-if exist "C:\\inetpub\\wwwroot\\PuffinMT_Demo\\PuffinUI\\web.config" (
+if exist "C:\\inetpub\\wwwroot\\PuffinMT_CXP\\PuffinUI\\web.config" (
     echo DEPLOYMENT_VERIFIED
 ) else (
     echo DEPLOYMENT_FAILED
