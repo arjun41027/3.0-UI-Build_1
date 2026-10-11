@@ -3,7 +3,7 @@ pipeline {
 
     environment {
         IIS_SERVER = '172.16.4.166'
-        IIS_TARGET = 'C:\\inetpub\\wwwroot\\PuffinMT_Demo\\PuffinUI'
+        IIS_TARGET = 'C:\\inetpub\\wwwroot\\PuffinMT_CXP\\PuffinUI'
         UI_BUILD_PATH = 'Desktop/3.0 UI and API Docs/3.0 UI Build'
     }
 
